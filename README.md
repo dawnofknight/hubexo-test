@@ -463,6 +463,67 @@ The main page displays a paginated list of construction projects with:
 
 ## Testing
 
+### Unit Tests
+
+The project includes comprehensive unit tests for both backend and frontend.
+
+#### Backend Tests (Jest + Supertest)
+
+```bash
+cd backend
+
+# Run all tests
+npm test
+
+# Run tests with watch mode
+npm run test:watch
+
+# Run tests with coverage report
+npm run test:coverage
+```
+
+**Test Coverage:**
+- **Error Module Tests** (4 tests)
+  - ApiException creation and properties
+  - Error code enum validation
+
+- **ProjectService Integration Tests** (28 tests)
+  - `getAllAreas()` - returns sorted UK areas
+  - `getAllCompanies()` - returns companies with proper structure
+  - `areaExists()` - validates area existence
+  - `fetchProjects()` - pagination, filtering by area/keyword
+
+- **API Endpoint Tests** (15 tests)
+  - `GET /health` - health check response
+  - `GET /api/areas` - area listing
+  - `GET /api/companies` - company listing
+  - `GET /api/projects` - with all filter combinations
+  - Error handling (400, 404 responses)
+
+#### Frontend Tests (Karma + Jasmine)
+
+```bash
+cd frontend
+
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+```
+
+**Test Coverage:**
+- **ProjectService Tests** (8 tests)
+  - API calls for projects, areas, companies
+  - Filter parameter handling
+  - Error handling
+
+- **ProjectListController Tests** (26 tests)
+  - Initialization state
+  - Filter application and clearing
+  - Pagination navigation (next/prev/goToPage)
+  - Helper functions (formatCurrency, formatDate, getPageNumbers)
+
 ### Manual API Testing
 
 ```bash

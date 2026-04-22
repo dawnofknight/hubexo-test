@@ -5,14 +5,22 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
-    "serve": "http-server -p 8080 -c-1"
+    "serve": "http-server -p 8080 -c-1",
+    "test": "karma start karma.conf.js",
+    "test:watch": "karma start karma.conf.js --no-single-run --auto-watch"
   },
   "dependencies": {
     "angular": "1.8.3"
   },
   "devDependencies": {
     "@types/angular": "^1.8.9",
+    "angular-mocks": "^1.8.3",
     "http-server": "^14.1.1",
+    "jasmine-core": "^6.2.0",
+    "karma": "^6.4.4",
+    "karma-chrome-launcher": "^3.2.0",
+    "karma-jasmine": "^5.1.0",
+    "karma-spec-reporter": "^0.0.36",
     "typescript": "^5.3.3"
   }
 }
