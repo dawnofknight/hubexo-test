@@ -1,0 +1,18 @@
+{
+  "name": "glenigan-frontend",
+  "version": "1.0.0",
+  "description": "AngularJS frontend for Glenigan construction projects",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "serve": "http-server -p 8080 -c-1"
+  },
+  "dependencies": {
+    "angular": "1.8.3"
+  },
+  "devDependencies": {
+    "@types/angular": "^1.8.9",
+    "http-server": "^14.1.1",
+    "typescript": "^5.3.3"
+  }
+}

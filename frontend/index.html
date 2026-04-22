@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en" ng-app="gleniganApp">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Glenigan - Construction Projects</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container" ng-controller="ProjectListController">
+    <!-- Header -->
+    <header class="header">
+      <h1>Construction Projects</h1>
+      <p class="subtitle">Browse and filter construction projects across the UK</p>
+    </header>
+
+    <!-- Filters Section -->
+    <section class="filters-section">
+      <h2>Search & Filter</h2>
+      <div class="filters-grid">
+        <!-- Keyword Search -->
+        <div class="filter-group">
+          <label for="keyword">Search by Project Name</label>
+          <input 
+            type="text" 
+            id="keyword" 
+            ng-model="filters.keyword" 
+            placeholder="Enter project name..."
+            ng-keypress="$event.keyCode === 13 && applyFilters()"
+          >
+        </div>
+
+        <!-- Area Filter -->
+        <div class="filter-group">
+          <label for="area">Filter by Area</label>
+          <select id="area" ng-model="filters.area">
+            <option value="">All Areas</option>
+            <option ng-repeat="area in areas" ng-value="area">{{area}}</option>
+          </select>
+        </div>
+
+        <!-- Company Filter (Optional/Nice-to-have) -->
+        <div class="filter-group">
+          <label for="company">Filter by Company</label>
+          <select id="company" ng-model="filters.company">
+            <option value="">All Companies</option>
+            <option ng-repeat="company in companies" ng-value="company.company_name">
+              {{company.company_name}}
+            </option>
+          </select>
+        </div>
+
+        <!-- Per Page -->
+        <div class="filter-group">
+          <label for="perPage">Items per page</label>
+          <select id="perPage" ng-model="pagination.perPage" ng-change="changePerPage()">
+            <option ng-repeat="opt in perPageOptions" ng-value="opt">{{opt}}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="filter-actions">
+        <button class="btn btn-primary" ng-click="applyFilters()" ng-disabled="loading">
+          <span ng-if="!loading">Search</span>
+          <span ng-if="loading">Searching...</span>
+        </button>
+        <button class="btn btn-secondary" ng-click="clearFilters()" ng-disabled="loading">
+          Clear Filters
+        </button>
+      </div>
+    </section>
+
+    <!-- Error Message -->
+    <div class="error-message" ng-if="error">
+      <strong>Error:</strong> {{error}}
+    </div>
+
+    <!-- Loading Indicator -->
+    <div class="loading" ng-if="loading">
+      <div class="spinner"></div>
+      <span>Loading projects...</span>
+    </div>
+
+    <!-- Results Summary -->
+    <div class="results-summary" ng-if="!loading && !error">
+      <span ng-if="pagination.totalItems > 0">
+        Showing {{(pagination.currentPage - 1) * pagination.perPage + 1}} - 
+        {{Math.min(pagination.currentPage * pagination.perPage, pagination.totalItems)}} 
+        of {{pagination.totalItems}} projects
+      </span>
+      <span ng-if="pagination.totalItems === 0">No projects found</span>
+    </div>
+
+    <!-- Projects Table -->
+    <section class="projects-section" ng-if="!loading">
+      <table class="projects-table" ng-if="projects.length > 0">
+        <thead>
+          <tr>
+            <th>Project Name</th>
+            <th>Company</th>
+            <th>Start Date</th>
+            <th>End Date</th>
+            <th class="text-right">Value (GBP)</th>
+            <th>Area</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr ng-repeat="project in projects">
+            <td class="project-name">{{project.project_name}}</td>
+            <td>{{project.company}}</td>
+            <td>{{formatDate(project.project_start)}}</td>
+            <td>{{formatDate(project.project_end)}}</td>
+            <td class="text-right project-value">{{formatCurrency(project.project_value)}}</td>
+            <td><span class="area-badge">{{project.area}}</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Empty State -->
+      <div class="empty-state" ng-if="projects.length === 0 && !error">
+        <p>No projects found matching your criteria.</p>
+        <p>Try adjusting your filters or search terms.</p>
+      </div>
+    </section>
+
+    <!-- Pagination -->
+    <nav class="pagination" ng-if="pagination.totalPages > 1 && !loading">
+      <button 
+        class="btn btn-page" 
+        ng-click="goToPage(1)" 
+        ng-disabled="pagination.currentPage === 1"
+        title="First page"
+      >
+        &laquo;
+      </button>
+      <button 
+        class="btn btn-page" 
+        ng-click="prevPage()" 
+        ng-disabled="!pagination.hasPrev"
+        title="Previous page"
+      >
+        &lsaquo;
+      </button>
+      
+      <span class="page-numbers">
+        <button 
+          ng-repeat="pageNum in getPageNumbers()" 
+          class="btn btn-page"
+          ng-class="{'active': pageNum === pagination.currentPage}"
+          ng-click="goToPage(pageNum)"
+        >
+          {{pageNum}}
+        </button>
+      </span>
+      
+      <button 
+        class="btn btn-page" 
+        ng-click="nextPage()" 
+        ng-disabled="!pagination.hasNext"
+        title="Next page"
+      >
+        &rsaquo;
+      </button>
+      <button 
+        class="btn btn-page" 
+        ng-click="goToPage(pagination.totalPages)" 
+        ng-disabled="pagination.currentPage === pagination.totalPages"
+        title="Last page"
+      >
+        &raquo;
+      </button>
+      
+      <span class="page-info">
+        Page {{pagination.currentPage}} of {{pagination.totalPages}}
+      </span>
+    </nav>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>Glenigan Construction Projects &copy; 2026</p>
+    </footer>
+  </div>
+
+  <!-- API Configuration for local development -->
+  <script>
+    // For local development without Docker, set the backend URL
+    // In Docker, this is not needed as nginx proxies /api to the backend
+    window.API_BASE_URL = 'http://localhost:3000/api';
+  </script>
+  
+  <!-- AngularJS -->
+  <script src="node_modules/angular/angular.min.js"></script>
+  <!-- Application -->
+  <script src="dist/types.js"></script>
+  <script src="dist/app.js"></script>
+</body>
+</html>
