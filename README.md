@@ -16,6 +16,7 @@ A full-stack web application for browsing and filtering UK construction projects
 - [Project Structure](#project-structure)
 - [Quick Start](#quick-start)
   - [Using Docker (Recommended)](#using-docker-recommended)
+  - [Fallback: Using run.sh Script](#fallback-using-runsh-script)
   - [Manual Setup](#manual-setup)
 - [API Documentation](#api-documentation)
 - [Frontend Usage](#frontend-usage)
