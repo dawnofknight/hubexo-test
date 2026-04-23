@@ -1,6 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './swagger';
 import { isDatabaseReady, closeDatabase, getDatabase } from './database';
 import {
   fetchProjects,
@@ -54,7 +56,38 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 });
 
 /**
+ * Swagger/OpenAPI documentation UI
+ */
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+/**
  * Health check endpoint
+ * @swagger
+ * /health:
+ *   get:
+ *     summary: Health check
+ *     description: Check if the API is healthy and database is connected
+ *     tags:
+ *       - Health
+ *     responses:
+ *       200:
+ *         description: API is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: healthy
+ *                 database:
+ *                   type: string
+ *                   example: connected
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       503:
+ *         description: API is unhealthy
  */
 app.get('/health', async (_req: Request, res: Response) => {
   const dbReady = await isDatabaseReady();
@@ -67,6 +100,31 @@ app.get('/health', async (_req: Request, res: Response) => {
 
 /**
  * GET /api/areas — reference data, cache-friendly.
+ * @swagger
+ * /api/areas:
+ *   get:
+ *     summary: Get all geographic areas
+ *     description: Returns a list of all available geographic areas in the UK construction projects database. Results are cached for 1 hour.
+ *     tags:
+ *       - Reference Data
+ *     responses:
+ *       200:
+ *         description: List of areas
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   example: [London, Manchester, Birmingham, Bristol, Cardiff]
+ *                 pagination:
+ *                   type: 'null'
  */
 app.get('/api/areas', async (_req: Request, res: Response, next: NextFunction) => {
   try {
@@ -81,6 +139,30 @@ app.get('/api/areas', async (_req: Request, res: Response, next: NextFunction) =
 
 /**
  * GET /api/companies — reference data, cache-friendly.
+ * @swagger
+ * /api/companies:
+ *   get:
+ *     summary: Get all companies
+ *     description: Returns a list of all companies in the database. Results are cached for 1 hour.
+ *     tags:
+ *       - Reference Data
+ *     responses:
+ *       200:
+ *         description: List of companies
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Company'
+ *                 pagination:
+ *                   type: 'null'
  */
 app.get('/api/companies', async (_req: Request, res: Response, next: NextFunction) => {
   try {
@@ -95,6 +177,50 @@ app.get('/api/companies', async (_req: Request, res: Response, next: NextFunctio
 
 /**
  * GET /api/projects/:id — single project details.
+ * @swagger
+ * /api/projects/{id}:
+ *   get:
+ *     summary: Get project by ID
+ *     description: Returns detailed information about a specific project
+ *     tags:
+ *       - Projects
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: Project ID
+ *         schema:
+ *           type: string
+ *           example: p-000001
+ *     responses:
+ *       200:
+ *         description: Project found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/ProjectDetail'
+ *                 pagination:
+ *                   type: 'null'
+ *       400:
+ *         description: Invalid project ID
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Project not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 app.get('/api/projects/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -136,6 +262,73 @@ app.get('/api/projects/:id', async (req: Request, res: Response, next: NextFunct
  * - keyword (optional): case-insensitive substring match on project name
  * - company (optional): filter by exact company name
  * - page / per_page (optional): 1-based pagination; if both omitted, returns all
+ *
+ * @swagger
+ * /api/projects:
+ *   get:
+ *     summary: Get projects
+ *     description: Returns a list of construction projects with optional filtering and pagination. When pagination is not requested (page and per_page omitted), returns all matching projects with pagination set to null.
+ *     tags:
+ *       - Projects
+ *     parameters:
+ *       - name: area
+ *         in: query
+ *         description: Filter by geographic area (exact match)
+ *         schema:
+ *           type: string
+ *           example: London
+ *       - name: keyword
+ *         in: query
+ *         description: Search in project name (case-insensitive substring match, max 255 chars)
+ *         schema:
+ *           type: string
+ *           example: Bridge
+ *       - name: company
+ *         in: query
+ *         description: Filter by company name (exact match)
+ *         schema:
+ *           type: string
+ *           example: NorthBuild Ltd
+ *       - name: page
+ *         in: query
+ *         description: Page number (1-based). If provided, per_page defaults to 20
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           example: 1
+ *       - name: per_page
+ *         in: query
+ *         description: Items per page (max 1000). If provided, page defaults to 1
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 1000
+ *           example: 20
+ *     responses:
+ *       200:
+ *         description: List of projects
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiResponse'
+ *       400:
+ *         description: Invalid parameters (pagination, keyword length)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Area not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       429:
+ *         description: Rate limit exceeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 app.get(
   '/api/projects',
