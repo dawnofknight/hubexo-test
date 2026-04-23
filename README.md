@@ -30,6 +30,7 @@ A full-stack web application for browsing and filtering UK construction projects
 - [Tradeoffs](#tradeoffs)
 - [Error Handling](#error-handling)
 - [Testing](#testing)
+- [Feedback Compliance (with Code References)](#feedback-compliance-with-code-references)
 
 ---
 
@@ -1111,39 +1112,299 @@ CREATE INDEX idx_projects_value ON projects(project_value DESC);
 
 ---
 
-## Feedback Compliance
+## Feedback Compliance (with Code References)
 
-This implementation incorporates feedback from the recruitment team:
+This section maps each clarification question and Alvin's response to the actual implementation code.
 
 ### 1. ✅ Area Parameter Optional
-Already implemented. `area` is an optional query parameter in `GET /api/projects?area=...`. Request succeeds with or without it.
 
-### 2. ✅ Unified Response Envelope
-**Implemented per feedback.** All endpoints return consistent `{success, data, pagination}` format:
-- With pagination: `pagination` contains metadata (current_page, per_page, total_items, total_pages, has_next, has_prev)
-- Without pagination: `pagination` is explicitly `null` (not absent)
-- Avoids mixed formats (raw array vs wrapped object) that confuse clients
-- Matches industry standards (GitHub, Stripe, JSON:API)
+**Question:** "The functional requirements state that area is optional, but the Error Handling section mentions 'Missing required query parameters (e.g. area)'"
 
-### 3. ✅ Use Best Judgment
-Documented design rationale in [Design Choices](#design-choices) section. Key decisions:
-- Rate limiting (120 req/min) for abuse prevention
-- Request timeout (30s) for hanging query protection
-- Cache headers (1-hour) on reference data
-- Graceful shutdown that drains in-flight requests
-- Server-side company filter for pagination correctness
+**Alvin's Answer:** "Please make the Area parameter optional."
 
-### 4. ✅ Keyword Search Case-Insensitive
-SQL `LIKE` operator is case-insensitive for ASCII characters. Implemented and documented in Assumptions.
+**Implementation:** Area is fully optional. Requests work with or without it.
 
-### 5. ✅ Filters Passed to Backend
-Confirmed. All filters (area, keyword, company) are backend-based via SQL `WHERE` clauses. Frontend passes input to API, not client-side filtering. Ensures pagination metadata is always accurate.
+| Code Location | Description |
+|---------------|-------------|
+| `backend/src/presentation/controllers/project.controller.ts` L21-25 | Area only validated if provided |
+| `backend/src/infrastructure/repositories/project.repository.ts` L46-49 | Area condition only added when present |
 
-### 6. ✅ AngularJS 1.8.x Legacy Context Understood
-This is intentional per the team's note about future assignment to legacy Angular projects. Implementation demonstrates:
-- Proper TypeScript typing (`IProjectListScope` interface) despite 1.8.x limitations
-- Understanding of AngularJS digest cycle (precomputed pageNumbers, not template functions)
-- Familiarity with legacy framework constraints and workarounds
+```typescript
+// project.controller.ts:21-25
+const { area, keyword, company, page, per_page } = req.query;
+
+// Validate area exists if provided (not required)
+if (area && typeof area === 'string') {
+  await this.areaService.validateAreaExists(area);
+}
+```
+
+```typescript
+// project.repository.ts:46-49
+if (area) {
+  conditions.push('pam.area = ?');
+  queryParams.push(area);
+}
+```
+
+---
+
+### 2. ✅ Pagination Response Format
+
+**Question:** "When pagination is applied, should pagination metadata be included? What response structure?"
+
+**Alvin's Answer:** 
+```json
+{
+    "data": [...]
+    "pagination": {// pagination info}
+}
+```
+"But if you have a better solution, please use yours and document why"
+
+**Implementation:** Extended with `success` field for consistent error handling.
+
+| Code Location | Description |
+|---------------|-------------|
+| `backend/src/application/dtos/index.ts` L29-47 | DTO definitions |
+| `backend/src/presentation/controllers/project.controller.ts` L43-47 | Response formatting |
+
+```typescript
+// dtos/index.ts:29-47
+export interface PaginationDTO {
+  current_page: number;
+  per_page: number;
+  total_items: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
+export interface ApiResponseDTO<T> {
+  success: boolean;
+  data: T;
+  pagination: PaginationDTO | null;
+}
+```
+
+```typescript
+// project.controller.ts:43-47
+res.json({
+  success: true,
+  data: result.projects,
+  pagination: result.pagination
+});
+```
+
+**Why `success` added:** Allows frontend to quickly check `if (!response.success)` without parsing error objects. Industry standard (GitHub, Stripe APIs).
+
+---
+
+### 3. ✅ GET /projects/:id Endpoint
+
+**Question:** "Should I also implement a single-project detail endpoint?"
+
+**Alvin's Answer:** "You do not have to, but you will be scored better if you do"
+
+**Implementation:** Endpoint implemented with PROJECT_NOT_FOUND error handling.
+
+| Code Location | Description |
+|---------------|-------------|
+| `backend/src/presentation/controllers/project.controller.ts` L52-67 | Controller method |
+| `backend/src/presentation/routes/project.routes.ts` L13 | Route definition |
+| `backend/src/application/services/project.service.ts` L35-45 | Service logic with NotFoundException |
+| `backend/src/infrastructure/repositories/project.repository.ts` L101-120 | Repository query |
+
+```typescript
+// project.controller.ts:52-67
+getProjectById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const projects = await this.projectService.getProjectById(id);
+
+    res.json({
+      success: true,
+      data: projects,
+      pagination: null
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+```
+
+```typescript
+// project.routes.ts:13
+router.get('/projects/:id', controller.getProjectById);
+```
+
+---
+
+### 4. ✅ Partial Pagination Parameters
+
+**Question:** "What should be the expected behavior if only `page` or only `per_page` is provided?"
+
+**Alvin's Answer:** "Use your best judgement and document the reason"
+
+**Implementation:** Option B - Apply default values when partial.
+
+| Code Location | Description |
+|---------------|-------------|
+| `backend/src/presentation/controllers/project.controller.ts` L27-33 | Default value logic |
+| `backend/src/config/app.config.ts` L4 | Default perPage constant |
+
+```typescript
+// project.controller.ts:27-33
+if (page !== undefined || per_page !== undefined) {
+  pageNum = page ? parseInt(page as string, 10) : 1;           // default: 1
+  perPageNum = per_page ? parseInt(per_page as string, 10) : AppConfig.defaultPerPage;  // default: 20
+}
+// If both undefined → no pagination (returns all)
+```
+
+```typescript
+// app.config.ts:4
+export const AppConfig = {
+  defaultPerPage: 20,
+  maxPerPage: 1000,
+  // ...
+};
+```
+
+**Why Option B:** 
+- Less friction for API consumers
+- Supports export use case (no pagination params = all data)
+- Consistent with REST API conventions
+
+---
+
+### 5. ✅ Projects Spanning Multiple Areas
+
+**Question:** "Should results be deduplicated or show one entry per project+area?"
+
+**Alvin's Answer:** "Please re-examine the data and see which option is best, and document the reason"
+
+**Implementation:** One row per project+area combination (no deduplication).
+
+| Code Location | Description |
+|---------------|-------------|
+| `backend/src/infrastructure/repositories/project.repository.ts` L29-42 | SQL JOIN includes area |
+| Database schema `project_area_map` | Many-to-many relationship |
+
+```typescript
+// project.repository.ts:29-42
+let baseQuery = `
+  SELECT DISTINCT
+    p.project_name,
+    p.project_start,
+    p.project_end,
+    c.company_name,
+    p.description,
+    p.project_value,
+    pam.area              -- Each row has specific area
+  FROM projects p
+  INNER JOIN companies c ON p.company_id = c.company_id
+  INNER JOIN project_area_map pam ON p.project_id = pam.project_id
+`;
+```
+
+**Why no deduplication:**
+- Database schema is many-to-many; each project+area is meaningful
+- Filtering by area returns only that area for matching projects
+- Preserves data integrity and relational model semantics
+- Frontend can group by project_name if needed
+
+---
+
+### 6. ✅ TypeScript with AngularJS 1.8.x
+
+**Question:** "Using TypeScript with AngularJS 1.x is somewhat uncommon. Is this intentional?"
+
+**Alvin's Answer:** "This is intentional. When you pass all the recruitment process, you will be assigned to a legacy project using Angular JS 1.8.3 with Typescript."
+
+**Implementation:** Full TypeScript with proper AngularJS typing.
+
+| Code Location | Description |
+|---------------|-------------|
+| `frontend/src/types.ts` L1-117 | All TypeScript interfaces |
+| `frontend/src/services/project.service.ts` L1-65 | Typed service with $inject |
+| `frontend/src/controllers/project-list.controller.ts` L1-157 | Typed controller with IScope |
+| `frontend/tsconfig.json` | TypeScript compilation settings |
+
+```typescript
+// types.ts:56-72
+interface IProjectListScope extends ng.IScope {
+  projects: IProject[];
+  loading: boolean;
+  error: string | null;
+  filters: IFilterState;
+  pagination: IPaginationState;
+  // ... fully typed
+}
+```
+
+```typescript
+// project.service.ts:9-12
+angular.module('gleniganApp').factory('ProjectService', [
+  '$http',
+  '$q',
+  function($http: ng.IHttpService, $q: ng.IQService): IProjectService {
+```
+
+---
+
+### 7. ✅ Keyword Search Case-Insensitive
+
+**Alvin's Answer:** "The keyword search being case insensitive seems sane, please proceed."
+
+**Implementation:** SQL LIKE is case-insensitive.
+
+| Code Location | Description |
+|---------------|-------------|
+| `backend/src/infrastructure/repositories/project.repository.ts` L51-54 | LIKE query |
+
+```typescript
+// project.repository.ts:51-54
+if (keyword) {
+  conditions.push('p.project_name LIKE ?');
+  queryParams.push(`%${keyword}%`);  // Case-insensitive in SQLite
+}
+```
+
+---
+
+### 8. ✅ All Filters Passed to Backend
+
+**Alvin's Answer:** "Please handle the filtering by passing filters to the backend. Frontend should only concern with passing user's filter input to the backend and displaying the result."
+
+**Implementation:** All filters (including company) are server-side.
+
+| Code Location | Description |
+|---------------|-------------|
+| `frontend/src/services/project.service.ts` L16-23 | Frontend passes all filters |
+| `backend/src/infrastructure/repositories/project.repository.ts` L46-59 | Backend SQL filtering |
+
+```typescript
+// Frontend: project.service.ts:16-23
+const queryParams: Record<string, string | number> = {};
+if (params.area) queryParams.area = params.area;
+if (params.keyword) queryParams.keyword = params.keyword;
+if (params.company) queryParams.company = params.company;  // Passed to backend
+if (params.page) queryParams.page = params.page;
+if (params.per_page) queryParams.per_page = params.per_page;
+
+return $http.get<IApiResponse<IProject[]>>(API_ENDPOINTS.PROJECTS, { params: queryParams })
+```
+
+```typescript
+// Backend: project.repository.ts:56-59
+if (company) {
+  conditions.push('c.company_name = ?');
+  queryParams.push(company);
+}
+```
+
+**Note:** Originally planned as client-side bonus, changed to server-side per Alvin's instruction to ensure pagination metadata accuracy.
 
 ---
 
