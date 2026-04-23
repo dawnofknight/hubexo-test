@@ -19,12 +19,17 @@ A full-stack web application for browsing and filtering UK construction projects
   - [Manual Setup](#manual-setup)
 - [API Documentation](#api-documentation)
 - [Frontend Usage](#frontend-usage)
+- [Architecture](#architecture)
+  - [Backend 4-Layer Architecture](#backend-4-layer-architecture)
+  - [SOLID Principles Applied](#solid-principles-applied)
+  - [Request Data Flow](#request-data-flow-4-layer)
+  - [Dependency Injection Flow](#dependency-injection-flow)
 - [Design Choices](#design-choices)
+- [Why 4-Layer Architecture?](#why-4-layer-architecture)
 - [Assumptions](#assumptions)
 - [Tradeoffs](#tradeoffs)
 - [Error Handling](#error-handling)
 - [Testing](#testing)
-- [Architecture](#architecture)
 
 ---
 
@@ -520,98 +525,132 @@ The main page displays a paginated list of construction projects with:
 
 ## Design Choices
 
-### Backend
+### Backend Architecture (4-Layer + SOLID)
 
 | Decision | Rationale |
 |----------|-----------|
-| **Unified response envelope** | All endpoints return `{success, data, pagination}` where pagination is null when not requested. Avoids mixed formats (raw array vs wrapped object) which confuse frontend clients. Matches industry practice (GitHub, Stripe, JSON:API). |
-| **Company filter in backend** | Server-side filtering ensures pagination metadata is always correct (not misleading when client-side filters). Reduces data transfer for large company result sets. |
-| **Rate limiting (120 req/min)** | Protects API from abuse; X-RateLimit headers inform clients of quota status. Prevents brute-force attacks on filterable endpoints. |
-| **Request timeout (30s)** | Kills long-running queries that would hang; returns 408 with X-Request-Id for debugging. Prevents connection exhaustion. |
+| **4-Layer Architecture** | Separates concerns: Domain (business rules), Infrastructure (data access), Application (use cases), Presentation (HTTP). Each layer has single responsibility and clear dependencies. Changes to HTTP handling don't affect business logic. |
+| **Dependency Injection** | Controllers receive services via constructor injection; services receive repositories. Enables unit testing with mocks, swapping implementations (e.g., SQLite → PostgreSQL) without code changes. |
+| **Repository Interfaces** | `IProjectRepository`, `IAreaRepository`, `ICompanyRepository` define contracts in Domain layer. Infrastructure implements them. Services depend on interfaces (DIP), not concrete classes. |
+| **Entity Factory Functions** | `createProject()`, `createCompany()`, `createArea()` encapsulate entity creation. Allows adding validation or computed fields without modifying callers (OCP). |
+| **Domain Exceptions** | `NotFoundException`, `ValidationException`, `DomainException` hierarchy provides typed errors. Middleware catches and maps to appropriate HTTP codes. |
+| **DTOs (Data Transfer Objects)** | `ProjectDTO`, `ApiResponseDTO` define API response shapes. Decouples internal entities from external contracts. |
+| **Centralized Config** | `app.config.ts` consolidates ports, rate limits, pagination limits. Single source of truth for tunable parameters. |
+| **Container Module** | `container.ts` wires all dependencies in one file. Visible dependency graph, easy to trace what depends on what. |
+
+### Backend API Design
+
+| Decision | Rationale |
+|----------|-----------|
+| **Unified response envelope** | All endpoints return `{success, data, pagination}` where pagination is null when not requested. Avoids mixed formats which confuse frontend clients. Matches industry practice (GitHub, Stripe, JSON:API). |
+| **Company filter in backend** | Server-side filtering ensures pagination metadata is always correct. Reduces data transfer for large result sets. |
+| **Rate limiting (120 req/min)** | Protects API from abuse; X-RateLimit headers inform clients of quota status. |
 | **Cache headers (1-hour)** | Reference data (`/areas`, `/companies`) changes rarely; browsers/CDNs cache to reduce server load. |
-| **Graceful shutdown** | `server.close()` drains in-flight requests; 10s safety timeout prevents hang. Critical in containerized deployments (rolling updates). |
-| **Deferred area validation** | `areaExists()` check only runs when results are empty, saving 1 DB query on the common happy path. |
-| **Express.js + TypeScript** | Lightweight, widely adopted, with type safety |
-| **sql.js (Pure JS SQLite)** | No native compilation required, works everywhere |
-| **Singleton database pattern** | Efficient connection reuse |
-| **Async/await throughout** | Clean, readable async code |
-| **Separate service layer** | Business logic isolated from routes |
-| **Structured error handling** | Error codes (AREA_NOT_FOUND, PROJECT_NOT_FOUND, RATE_LIMITED, etc.) allow programmatic client handling |
+| **Deferred area validation** | `areaExists()` check only runs when results are empty, saving 1 DB query on common happy path. |
+| **Structured error handling** | Error codes (AREA_NOT_FOUND, PROJECT_NOT_FOUND, RATE_LIMITED) allow programmatic client handling. |
 
-### Frontend
+### Frontend Architecture (Component-Based)
 
 | Decision | Rationale |
 |----------|-----------|
-| **Filter on button click** | Reduces API calls, better UX for slow typers, clear user control. Avoids hundreds of requests per typing session. |
-| **Server-side company filter** | Ensures pagination metadata is accurate when company is selected. Deferred to backend for correctness (not just scope). |
-| **Precomputed page numbers** | `$scope.pageNumbers` updated on pagination change, not called from template inside ng-repeat (avoids per-digest recomputation in AngularJS). |
-| **Proper `$scope` typing** | `IProjectListScope` interface replaces `$scope: any`, catching type errors at compile-time despite legacy AngularJS 1.8.x. |
-| **Server-side pagination** | Efficient for large datasets (1800+ records). Pagination is optional; omitting both `page`/`per_page` returns all records for exports. |
-| **Responsive design** | CSS Grid + media queries, works on desktop and mobile. |
-| **Plain CSS** | No build tooling required, matches spec. CSS variables for maintainability. |
+| **Modular file structure** | Separate files: `app.ts` (module), `project.service.ts` (data), `project-list.controller.ts` (UI logic), `api.config.ts` (settings). Each file < 200 lines. |
+| **Typed interfaces** | `IProjectService`, `IProjectListScope`, `IProjectQueryParams` in `types.ts`. Compile-time error detection despite legacy AngularJS. |
+| **Service layer** | `ProjectService` handles all API communication. Controllers focus on UI state only (SRP). |
+| **Config constants** | `API_BASE_URL`, `API_ENDPOINTS` in separate file. Easy environment switching (dev/prod). |
+| **Filter on button click** | Reduces API calls, better UX for slow typers. Avoids hundreds of requests per typing session. |
+| **Precomputed page numbers** | `$scope.pageNumbers` updated on pagination change. Avoids per-digest recomputation in AngularJS templates. |
+| **Server-side pagination** | Efficient for large datasets (1800+ records). Optional; omitting `page`/`per_page` returns all records for exports. |
 
-### Docker
+### Docker & DevOps
 
 | Decision | Rationale |
 |----------|-----------|
-| **Multi-stage builds** | Smaller production images |
-| **nginx for frontend** | Production-grade static file serving |
-| **nginx as API proxy** | Single entry point, eliminates CORS in production |
-| **Health checks** | Container orchestration support |
-| **Named network** | Clean service discovery |
+| **Multi-stage builds** | Smaller production images (compile in build stage, copy artifacts to runtime stage). |
+| **nginx as API proxy** | Single entry point eliminates CORS in production. Load balancer ready. |
+| **Health checks** | Container orchestration support for rolling updates. |
+
+---
+
+## Why 4-Layer Architecture?
+
+The 4-layer pattern addresses common problems in monolithic backends:
+
+### Problem → Solution
+
+| Problem | Solution |
+|---------|----------|
+| **"God files"** — 500+ line files mixing HTTP, business logic, and SQL | Each layer is focused: Controllers (~50 lines), Services (~80 lines), Repositories (~100 lines) |
+| **Untestable code** — database calls scattered everywhere | Services depend on repository interfaces; tests inject mocks |
+| **Vendor lock-in** — SQL queries embedded in business logic | Repository pattern isolates SQL; swap implementations without touching services |
+| **Leaky abstractions** — HTTP concerns in business logic | Controllers handle HTTP; Services pure TypeScript; clean separation |
+| **Circular dependencies** — everything imports everything | Strict layer hierarchy: Presentation → Application → Infrastructure → Domain |
+
+### Layer Responsibilities
+
+| Layer | Knows About | Does NOT Know About |
+|-------|-------------|---------------------|
+| **Domain** | Business entities, interfaces | HTTP, databases, frameworks |
+| **Infrastructure** | Domain entities, SQL, file I/O | HTTP, business rules |
+| **Application** | Domain, Infrastructure interfaces | HTTP, SQL implementation details |
+| **Presentation** | Application services, HTTP | SQL, direct database access |
+
+### Trade-offs Accepted
+
+| Trade-off | Justification |
+|-----------|---------------|
+| **More files** (43 vs 5) | Each file has single purpose; easier navigation with good folder structure |
+| **More boilerplate** | TypeScript interfaces provide compile-time safety; IDEs auto-complete |
+| **Learning curve** | Standard pattern; new team members recognize it from other projects |
+| **Indirection** | Debugger shows clear call stack through layers; easier to trace than spaghetti |
 
 ---
 
 ## Assumptions
 
-1. **One project per area in results**: While the database supports many-to-many relationships between projects and areas, when filtering by area, only that area is returned for each matching project. (A project may appear on multiple rows if it maps to multiple areas, but each row is distinct.)
+1. **One project per area in results**: While the database supports many-to-many relationships between projects and areas, when filtering by area, only that area is returned for each matching project.
 
-2. **Pagination is optional**: When both `page` and `per_page` are omitted, all projects are returned without pagination metadata (`pagination: null`). This supports export/report use cases mentioned in requirements.
+2. **Pagination is optional**: When both `page` and `per_page` are omitted, all projects are returned without pagination metadata (`pagination: null`).
 
-3. **Case-insensitive keyword search**: The keyword search uses SQL LIKE with wildcards for partial matching and is case-insensitive (works correctly for ASCII; Unicode handling depends on SQLite collation).
+3. **Case-insensitive keyword search**: The keyword search uses SQL LIKE with wildcards for partial matching and is case-insensitive.
 
-4. **Exact area matching**: Area names must match exactly (case-sensitive) since they're predefined values from `project_area_map`.
+4. **Exact area matching**: Area names must match exactly (case-sensitive) since they're predefined values.
 
-5. **Company filter is server-side**: Implemented in backend SQL (`WHERE c.company_name = ?`) for pagination correctness. Frontend passes the filter to the API, not just the client-side filtering mentioned in earlier iterations.
+5. **Company filter is server-side**: Implemented in backend SQL for pagination correctness.
 
 6. **Description can be null**: Projects without descriptions return `null` rather than empty strings.
-
-7. **Unified response envelope**: All API responses use `{success, data, pagination}` format. This is consistent per the feedback and industry best practices.
 
 ---
 
 ## Tradeoffs
+
+### Architecture
+
+| Choice | Tradeoff |
+|--------|----------|
+| **4-layer architecture** | More files and indirection, but clear separation, testability, and maintainability. Worth it for non-trivial apps. |
+| **Dependency injection (manual)** | No framework overhead, but requires wiring in `container.ts`. Sufficient for this scale; consider InversifyJS for larger apps. |
+| **Repository interfaces** | Extra abstraction layer, but enables mocking and database swapping. Essential for testing. |
 
 ### Performance vs Simplicity
 
 | Choice | Tradeoff |
 |--------|----------|
 | **sql.js (pure JS SQLite)** | Slightly slower than native SQLite, but no compilation issues across OS/Node versions. Database loaded into memory. |
-| **Single-threaded Node.js** | Simple, but may bottleneck under heavy concurrent load. Rate limiting mitigates brute-force; load balancing handles scaling. |
-| **Deferred `areaExists()` validation** | Saves 1 DB query on happy path but adds check on empty results. Trade: complexity for 1-query reduction on 99% of requests. |
+| **Single-threaded Node.js** | Simple, but may bottleneck under heavy concurrent load. Rate limiting mitigates; load balancing handles scaling. |
 
 ### API Design
 
 | Choice | Tradeoff |
 |--------|----------|
-| **Unified response envelope** | Consistent format across all endpoints. Minimal overhead (`pagination: null` is cheap) vs mixed formats that surprise clients. |
-| **Server-side company filter** | Requires SQL join, but ensures pagination correctness. Alternative (client-side) would mislead pagination metadata. |
-| **Area exact-match validation** | Extra query only on empty results; prevents "no projects found" ambiguity (bad area vs zero matches). |
+| **Unified response envelope** | Consistent format. Minimal overhead (`pagination: null` is cheap) vs mixed formats that surprise clients. |
+| **Server-side company filter** | Requires SQL join, but ensures pagination correctness. |
 
 ### Frontend Architecture
 
 | Choice | Tradeoff |
 |--------|----------|
-| **Legacy AngularJS 1.8.x** | Not a choice (spec requirement), but shows ability to work in brownfield legacy environments with TypeScript typing. |
-| **Precomputed `pageNumbers`** | Trades storage (one small array on scope) for eliminating per-digest function calls. Measurable performance gain in AngularJS 1.x. |
-
-### Docker
-
-| Choice | Tradeoff |
-|--------|----------|
-| **nginx reverse proxy** | Adds Docker image size (~10 MB), but eliminates CORS issues and provides single entry point for load balancing. |
-| **Alpine Linux images** | Minimal (~40 MB Node), but fewer packages available if future needs arise. Sufficient for this app. |
-| **Health checks** | Small overhead (10 endpoints/min) but critical for orchestration and rolling deployments. |
+| **Legacy AngularJS 1.8.x** | Spec requirement. Shows ability to work in brownfield legacy environments with TypeScript typing. |
+| **Component-based structure** | More files than single `app.ts`, but each under 200 lines. Easier to navigate and maintain. |
 
 ---
 
@@ -661,26 +700,25 @@ npm run test:watch
 npm run test:coverage
 ```
 
-**Test Coverage: 47 tests**
-- **Error Module Tests** (4 tests)
-  - ApiException creation with/without details
-  - ErrorCode enum with PROJECT_NOT_FOUND, RATE_LIMITED
+**Test Coverage: 40 tests across 3 test suites**
 
-- **ProjectService Integration Tests** (28 tests)
-  - `getAllAreas()` - returns sorted UK areas
-  - `getAllCompanies()` - returns companies with proper structure
-  - `areaExists()` - validates area existence with deferred check
-  - `getProjectById()` - returns project details or undefined
-  - `fetchProjects()` - pagination, filtering by area/keyword/company
+- **Exception Tests** (7 tests)
+  - DomainException, NotFoundException, ValidationException
+  - ApiException with/without details
+  - ErrorCode enum validation
 
-- **API Endpoint Tests** (15 tests)
+- **Repository Tests** (17 tests)
+  - `ProjectRepository`: findProjects, findById, countProjects, areaExists
+  - `AreaRepository`: findAll returns sorted UK areas
+  - `CompanyRepository`: findAll returns companies with proper structure
+
+- **API Endpoint Tests** (16 tests)
   - `GET /health` - health check with database status
   - `GET /api/areas` - area listing with cache headers
   - `GET /api/companies` - company listing with cache headers
   - `GET /api/projects/:id` - single project or PROJECT_NOT_FOUND 404
   - `GET /api/projects` - with pagination, area, keyword, company filters
-  - Keyword length validation (400 VALIDATION_ERROR)
-  - Error handling (400, 404, 429 responses)
+  - Validation errors (400), Not found (404), Rate limiting (429)
 
 #### Frontend Tests (Karma + Jasmine)
 
@@ -707,7 +745,7 @@ npm run test:watch
   - Helper functions (formatCurrency, formatDate)
   - Precomputed `pageNumbers` (tested after load, not as template function)
 
-**Summary: 81 total tests (47 backend + 34 frontend) — all passing.**
+**Summary: 74 total tests (40 backend + 34 frontend) — all passing.**
 
 ### Manual API Testing
 
@@ -775,7 +813,76 @@ docker-compose ps
 
 ## Architecture
 
-### System Diagram
+### Backend 4-Layer Architecture
+
+The backend follows a **Clean Architecture** pattern with 4 distinct layers, each with specific responsibilities:
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                          BACKEND 4-LAYER ARCHITECTURE                      │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  LAYER 4: PRESENTATION (HTTP Interface)                              │  │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌───────────────┐   │  │
+│  │  │ Controllers│  │   Routes   │  │ Middlewares│  │  Express App  │   │  │
+│  │  │ • Project  │  │ • /api/*   │  │ • Error    │  │ • CORS        │   │  │
+│  │  │ • Area     │  │ • /health  │  │ • Validate │  │ • Rate Limit  │   │  │
+│  │  │ • Company  │  │            │  │ • Logger   │  │ • JSON Parse  │   │  │
+│  │  │ • Health   │  │            │  │            │  │               │   │  │
+│  │  └─────┬──────┘  └────────────┘  └────────────┘  └───────────────┘   │  │
+│  └────────┼─────────────────────────────────────────────────────────────┘  │
+│           │ Calls services via DI                                          │
+│  ┌────────▼─────────────────────────────────────────────────────────────┐  │
+│  │  LAYER 3: APPLICATION (Use Cases / Business Logic)                   │  │
+│  │  ┌──────────────────┐  ┌──────────────────────────────────────────┐  │  │
+│  │  │     Services     │  │                  DTOs                     │  │  │
+│  │  │  • ProjectService│  │  • ProjectDTO      • PaginationDTO       │  │  │
+│  │  │  • AreaService   │  │  • CompanyDTO      • ApiResponseDTO      │  │  │
+│  │  │  • CompanyService│  │  • GetProjectsQueryDTO                   │  │  │
+│  │  │  • HealthService │  │                                          │  │  │
+│  │  └────────┬─────────┘  └──────────────────────────────────────────┘  │  │
+│  └───────────┼──────────────────────────────────────────────────────────┘  │
+│              │ Depends on repository interfaces (not implementations)      │
+│  ┌───────────▼──────────────────────────────────────────────────────────┐  │
+│  │  LAYER 2: INFRASTRUCTURE (Data Access)                               │  │
+│  │  ┌────────────────────┐  ┌────────────────────────────────────────┐  │  │
+│  │  │    Repositories    │  │            Database                     │  │  │
+│  │  │  • ProjectRepository│ │  • DatabaseConnection (Singleton)      │  │  │
+│  │  │  • AreaRepository   │ │  • sql.js SQLite Driver                │  │  │
+│  │  │  • CompanyRepository│ │  • Query helpers (queryAll, queryOne)  │  │  │
+│  │  └────────┬───────────┘  └────────────────────────────────────────┘  │  │
+│  └───────────┼──────────────────────────────────────────────────────────┘  │
+│              │ Uses domain entities                                        │
+│  ┌───────────▼──────────────────────────────────────────────────────────┐  │
+│  │  LAYER 1: DOMAIN (Core Business Rules)                                │  │
+│  │  ┌────────────────┐  ┌───────────────────┐  ┌─────────────────────┐  │  │
+│  │  │    Entities    │  │    Interfaces     │  │     Exceptions      │  │  │
+│  │  │  • Project     │  │ • IProjectRepo    │  │ • DomainException   │  │  │
+│  │  │  • Company     │  │ • IAreaRepo       │  │ • NotFoundException │  │  │
+│  │  │  • Area        │  │ • ICompanyRepo    │  │ • ValidationException│ │  │
+│  │  └────────────────┘  └───────────────────┘  └─────────────────────┘  │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                            │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  DEPENDENCY INJECTION CONTAINER (container.ts)                       │  │
+│  │  Wires: Database → Repositories → Services → Controllers → Routes   │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+### SOLID Principles Applied
+
+| Principle | Implementation | Example |
+|-----------|---------------|---------|
+| **S**ingle Responsibility | Each class has one reason to change | `ProjectController` only handles HTTP; `ProjectService` only orchestrates use cases; `ProjectRepository` only queries data |
+| **O**pen/Closed | Entities extendable via factory functions | `createProject()` factory allows adding computed fields without modifying entity structure |
+| **L**iskov Substitution | Repository implementations are interchangeable | `IProjectRepository` can be implemented by `SqliteProjectRepository` or `PostgresProjectRepository` |
+| **I**nterface Segregation | Small, focused interfaces | Separate `IProjectRepository`, `IAreaRepository`, `ICompanyRepository` instead of one large interface |
+| **D**ependency Inversion | High-level modules depend on abstractions | `ProjectService` depends on `IProjectRepository` interface, not `SqliteProjectRepository` implementation |
+
+### System Deployment Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -785,20 +892,22 @@ docker-compose ps
 │  │    (nginx:alpine)       │    │    (node:20-alpine)          │ │
 │  │                         │    │                              │ │
 │  │  ┌──────────────────┐   │    │  ┌───────────────────────┐  │ │
-│  │  │   Static Files   │   │    │  │    Express.js API     │  │ │
+│  │  │   Static Files   │   │    │  │   4-Layer Express.js  │  │ │
 │  │  │  - index.html    │   │    │  │                       │  │ │
-│  │  │  - styles.css    │   │    │  │  /api/projects       │  │ │
-│  │  │  - app.js        │   │    │  │  /api/areas          │  │ │
-│  │  │  - angular.min.js│   │    │  │  /api/companies      │  │ │
-│  │  └──────────────────┘   │    │  │  /health             │  │ │
-│  │                         │    │  └───────────────────────┘  │ │
-│  │  ┌──────────────────┐   │    │              │              │ │
-│  │  │  Nginx Proxy     │───┼────┼──────────────┘              │ │
-│  │  │  /api/* → backend│   │    │                              │ │
-│  │  └──────────────────┘   │    │  ┌───────────────────────┐  │ │
-│  │                         │    │  │  SQLite Database      │  │ │
-│  │         :80             │    │  │  (sql.js in-memory)   │  │ │
-│  └─────────────────────────┘    │  └───────────────────────┘  │ │
+│  │  │  - styles.css    │   │    │  │  Presentation → App   │  │ │
+│  │  │  - app.js        │   │    │  │       → Infra → Domain│  │ │
+│  │  │  - angular.min.js│   │    │  │                       │  │ │
+│  │  └──────────────────┘   │    │  └───────────────────────┘  │ │
+│  │                         │    │              │              │ │
+│  │  ┌──────────────────┐   │    │  ┌───────────▼───────────┐  │ │
+│  │  │  Nginx Proxy     │───┼────┼─▶│  DI Container         │  │ │
+│  │  │  /api/* → backend│   │    │  │  (Dependency Wiring)  │  │ │
+│  │  └──────────────────┘   │    │  └───────────────────────┘  │ │
+│  │                         │    │              │              │ │
+│  │         :80             │    │  ┌───────────▼───────────┐  │ │
+│  └─────────────────────────┘    │  │  SQLite Database      │  │ │
+│            │                    │  │  (sql.js in-memory)   │  │ │
+│            │                    │  └───────────────────────┘  │ │
 │            │                    │              :3000           │ │
 └────────────┼────────────────────┼──────────────────────────────┘
              │                    │
@@ -806,48 +915,163 @@ docker-compose ps
              │                    │
       ┌──────┴────────────────────┴──────┐
       │           Host Machine           │
-      │                                  │
       │   Browser → localhost:8080       │
       │   API     → localhost:3000       │
       └──────────────────────────────────┘
 ```
 
-### Data Flow
+### Request Data Flow (4-Layer)
 
 ```
-User Action (Filter/Search)
-         │
-         ▼
-┌─────────────────────┐
-│  AngularJS Frontend │
-│  (ProjectService)   │
-└─────────┬───────────┘
-          │ HTTP GET /api/projects?...
-          ▼
-┌─────────────────────┐
-│  Express.js Router  │
-│  (Validation)       │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  ProjectService     │
-│  (Business Logic)   │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  Database Layer     │
-│  (sql.js SQLite)    │
-└─────────┬───────────┘
-          │ SQL Query with JOINs
-          ▼
-┌─────────────────────┐
-│  SQLite Database    │
-│  - projects         │
-│  - companies        │
-│  - project_area_map │
-└─────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              REQUEST FLOW                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+User Action: Search for "bridge" projects in London
+                    │
+                    ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│  FRONTEND (AngularJS)                                                      │
+│  ┌─────────────────┐    ┌─────────────────────────────────────────────┐   │
+│  │ Controller      │───▶│ ProjectService.getProjects({                │   │
+│  │ (User clicks    │    │   keyword: 'bridge',                        │   │
+│  │  Search button) │    │   area: 'London',                           │   │
+│  └─────────────────┘    │   page: 1, per_page: 20                     │   │
+│                         │ })                                           │   │
+│                         └──────────────────┬──────────────────────────┘   │
+└────────────────────────────────────────────┼──────────────────────────────┘
+                                             │ HTTP GET /api/projects?
+                                             │   keyword=bridge&area=London&page=1
+                                             ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│  LAYER 4: PRESENTATION                                                     │
+│  ┌─────────────┐    ┌───────────────┐    ┌─────────────────────────────┐  │
+│  │   Router    │───▶│  Middlewares  │───▶│   ProjectController         │  │
+│  │ /api/projects│   │ • rateLimit   │    │   .getProjects(req, res)    │  │
+│  │             │    │ • validate    │    │                             │  │
+│  └─────────────┘    └───────────────┘    └──────────────┬──────────────┘  │
+└─────────────────────────────────────────────────────────┼─────────────────┘
+                                                          │ Parse query → DTO
+                                                          ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│  LAYER 3: APPLICATION                                                      │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │  ProjectService.getProjects(query: GetProjectsQueryDTO)              │  │
+│  │                                                                      │  │
+│  │  1. Validate business rules (keyword length, pagination bounds)      │  │
+│  │  2. Call repository via interface (DIP)                             │  │
+│  │  3. Transform entities → DTOs for response                          │  │
+│  │  4. Return ApiResponseDTO with pagination metadata                  │  │
+│  └────────────────────────────────────┬────────────────────────────────┘  │
+└───────────────────────────────────────┼────────────────────────────────────┘
+                                        │ IProjectRepository.findProjects()
+                                        ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│  LAYER 2: INFRASTRUCTURE                                                   │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │  ProjectRepository (implements IProjectRepository)                   │  │
+│  │                                                                      │  │
+│  │  1. Build SQL query with JOINs                                      │  │
+│  │  2. Execute via DatabaseConnection.queryAll()                       │  │
+│  │  3. Map raw rows → Project entities (via factory)                   │  │
+│  │  4. Return entity array to service                                  │  │
+│  └────────────────────────────────────┬────────────────────────────────┘  │
+└───────────────────────────────────────┼────────────────────────────────────┘
+                                        │ SQL query
+                                        ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│  LAYER 1: DOMAIN                                                           │
+│  ┌────────────────────────────────────────────────────────────────────┐   │
+│  │  Project Entity (pure data, no dependencies)                        │   │
+│  │  {                                                                  │   │
+│  │    project_id: string, project_name: string,                        │   │
+│  │    project_start: string, project_end: string,                      │   │
+│  │    company: string, description: string | null,                     │   │
+│  │    project_value: number, area: string                              │   │
+│  │  }                                                                  │   │
+│  └────────────────────────────────────────────────────────────────────┘   │
+│  ┌────────────────────────────────────────────────────────────────────┐   │
+│  │  IProjectRepository Interface (contract)                            │   │
+│  │  {                                                                  │   │
+│  │    findProjects(filters, pagination): Promise<Project[]>            │   │
+│  │    countProjects(filters): Promise<number>                          │   │
+│  │    findById(id): Promise<Project | undefined>                       │   │
+│  │    areaExists(area): Promise<boolean>                               │   │
+│  │  }                                                                  │   │
+│  └────────────────────────────────────────────────────────────────────┘   │
+└───────────────────────────────────────────────────────────────────────────┘
+
+                              RESPONSE FLOW
+                                   ▲
+                                   │ JSON Response
+┌──────────────────────────────────┴────────────────────────────────────────┐
+│  {                                                                        │
+│    "success": true,                                                       │
+│    "data": [                                                              │
+│      { "project_name": "London Bridge Renovation", "area": "London", ...}│
+│    ],                                                                     │
+│    "pagination": { "current_page": 1, "total_items": 42, ... }           │
+│  }                                                                        │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+### Dependency Injection Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         DEPENDENCY INJECTION (container.ts)                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Startup Sequence:
+                                                                              
+   ┌─────────────────┐                                                        
+   │  1. Database    │  DatabaseConnection.getInstance()                      
+   │     Singleton   │  ───────────────────────────────▶ SQLite loaded       
+   └────────┬────────┘                                                        
+            │                                                                 
+            ▼ Injected into                                                   
+   ┌─────────────────────────────────────────────────────────────────────┐   
+   │  2. Repositories (Infrastructure Layer)                             │   
+   │  ┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐  │   
+   │  │ ProjectRepository │ │  AreaRepository   │ │ CompanyRepository │  │   
+   │  │  (db: Database)   │ │  (db: Database)   │ │  (db: Database)   │  │   
+   │  └─────────┬─────────┘ └─────────┬─────────┘ └─────────┬─────────┘  │   
+   └────────────┼─────────────────────┼─────────────────────┼────────────┘   
+                │                     │                     │                 
+                ▼ Injected into       ▼                     ▼                 
+   ┌─────────────────────────────────────────────────────────────────────┐   
+   │  3. Services (Application Layer)                                    │   
+   │  ┌──────────────────────┐ ┌────────────────┐ ┌────────────────────┐ │   
+   │  │   ProjectService     │ │  AreaService   │ │  CompanyService    │ │   
+   │  │ (repo: IProjectRepo) │ │ (repo: IArea)  │ │ (repo: ICompany)   │ │   
+   │  └──────────┬───────────┘ └───────┬────────┘ └─────────┬──────────┘ │   
+   └─────────────┼─────────────────────┼────────────────────┼────────────┘   
+                 │                     │                    │                 
+                 ▼ Injected into       ▼                    ▼                 
+   ┌─────────────────────────────────────────────────────────────────────┐   
+   │  4. Controllers (Presentation Layer)                                │   
+   │  ┌─────────────────────┐ ┌─────────────────┐ ┌─────────────────────┐│   
+   │  │ ProjectController   │ │ AreaController  │ │ CompanyController   ││   
+   │  │ (svc: ProjectService)│ │(svc: AreaSvc)  │ │(svc: CompanySvc)    ││   
+   │  └──────────┬──────────┘ └────────┬────────┘ └──────────┬──────────┘│   
+   └─────────────┼─────────────────────┼─────────────────────┼───────────┘   
+                 │                     │                     │                
+                 ▼ Registered in       ▼                     ▼                
+   ┌─────────────────────────────────────────────────────────────────────┐   
+   │  5. Express Routes                                                  │   
+   │  ┌──────────────────────────────────────────────────────────────┐   │   
+   │  │  app.use('/api', createProjectRoutes(projectController));    │   │   
+   │  │  app.use('/api', createAreaRoutes(areaController));          │   │   
+   │  │  app.use('/api', createCompanyRoutes(companyController));    │   │   
+   │  │  app.use('/', createHealthRoutes(healthController));         │   │   
+   │  └──────────────────────────────────────────────────────────────┘   │   
+   └─────────────────────────────────────────────────────────────────────┘   
+                                                                              
+Why DI Matters:
+• Loose Coupling: Services depend on interfaces, not concrete implementations
+• Testability: Mock repositories in unit tests without touching database
+• Swappability: Replace SQLite with PostgreSQL by changing only container.ts
+• Single Source: All dependencies wired in one place for visibility
 ```
 
 ### Database Schema
