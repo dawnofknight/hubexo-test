@@ -101,6 +101,17 @@ fi
 print_success "Frontend built successfully"
 cd ..
 
+# Ensure database file is accessible from project root
+print_header "Setting up Database"
+
+if [ ! -f "glenigan_takehome FS.db" ] && [ -f "backend/glenigan_takehome FS.db" ]; then
+    print_warning "Copying database file to project root..."
+    cp "backend/glenigan_takehome FS.db" "glenigan_takehome FS.db"
+    print_success "Database ready"
+else
+    print_success "Database file ready"
+fi
+
 # Start services
 print_header "Starting Services"
 
@@ -115,7 +126,8 @@ BACKEND_PID=$!
 
 sleep 2
 
-cd ../frontend && npm run serve &
+# Go back to root then into frontend (we're still in root from previous cd ..)
+cd frontend && npm run serve &
 FRONTEND_PID=$!
 
 # Handle cleanup on exit

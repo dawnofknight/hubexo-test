@@ -252,6 +252,7 @@ The script will:
 - ✓ Check Node.js installation
 - ✓ Install dependencies for both services
 - ✓ Build TypeScript code
+- ✓ Automatically set up database file (copies to project root if needed)
 - ✓ Start both backend and frontend
 
 Access the application:
@@ -259,6 +260,8 @@ Access the application:
 - **Backend API**: http://localhost:3000/api
 
 To stop: Press `Ctrl+C`
+
+**Database**: The script automatically handles the SQLite database file (`glenigan_takehome FS.db`) located in the backend directory, ensuring it's accessible when the services start.
 
 ### Manual Setup
 
