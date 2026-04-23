@@ -381,39 +381,50 @@ describe('ProjectListController', function() {
       expect($scope.formatDate('')).toBe('-');
     });
 
-    it('getPageNumbers should return array of page numbers', function() {
+    function loadAtPage(page, totalPages) {
+      $httpBackend.expectGET(API_BASE_URL + '/projects?page=' + page + '&per_page=20').respond(200, {
+        success: true,
+        data: mockProjects,
+        pagination: {
+          current_page: page,
+          per_page: 20,
+          total_items: totalPages * 20,
+          total_pages: totalPages,
+          has_next: page < totalPages,
+          has_prev: page > 1
+        }
+      });
+      $scope.goToPage(page);
+      $httpBackend.flush();
+    }
+
+    it('pageNumbers should be an array after load', function() {
       createController();
       $scope.pagination.totalPages = 10;
-      $scope.pagination.currentPage = 5;
-      
-      var pages = $scope.getPageNumbers();
-      
-      expect(Array.isArray(pages)).toBe(true);
-      expect(pages.length).toBeGreaterThan(0);
-      expect(pages.length).toBeLessThanOrEqual(5);
+      loadAtPage(5, 10);
+
+      expect(Array.isArray($scope.pageNumbers)).toBe(true);
+      expect($scope.pageNumbers.length).toBeGreaterThan(0);
+      expect($scope.pageNumbers.length).toBeLessThanOrEqual(5);
     });
 
-    it('getPageNumbers should center around current page', function() {
+    it('pageNumbers should center around current page', function() {
       createController();
       $scope.pagination.totalPages = 10;
-      $scope.pagination.currentPage = 5;
-      
-      var pages = $scope.getPageNumbers();
-      
-      expect(pages).toContain(5);
-      expect(pages).toContain(3);
-      expect(pages).toContain(7);
+      loadAtPage(5, 10);
+
+      expect($scope.pageNumbers).toContain(5);
+      expect($scope.pageNumbers).toContain(3);
+      expect($scope.pageNumbers).toContain(7);
     });
 
-    it('getPageNumbers should handle first page', function() {
+    it('pageNumbers should handle first page', function() {
       createController();
       $scope.pagination.totalPages = 10;
-      $scope.pagination.currentPage = 1;
-      
-      var pages = $scope.getPageNumbers();
-      
-      expect(pages[0]).toBe(1);
-      expect(pages.length).toBeLessThanOrEqual(5);
+      loadAtPage(1, 10);
+
+      expect($scope.pageNumbers[0]).toBe(1);
+      expect($scope.pageNumbers.length).toBeLessThanOrEqual(5);
     });
   });
 });

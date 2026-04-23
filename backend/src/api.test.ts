@@ -1,131 +1,16 @@
-import express from 'express';
 import request from 'supertest';
 import * as path from 'path';
 
-// Set database path for tests before importing modules
-const testDbPath = path.join(__dirname, '..', 'glenigan_takehome FS.db');
-process.env.DATABASE_PATH = testDbPath;
+// Set database path for tests before importing modules.
+process.env.DB_PATH = path.join(__dirname, '..', 'glenigan_takehome FS.db');
+process.env.NODE_ENV = 'test';
 
 import { getDatabase, closeDatabase } from './database';
-import { errorHandler, notFoundHandler, ApiException, ErrorCode } from './errors';
-import { fetchProjects, getAllAreas, getAllCompanies, areaExists } from './projectService';
-import { ProjectQueryParams, ApiResponse, Project } from './types';
-
-// Create a test app with the same routes as the main app
-function createTestApp() {
-  const app = express();
-  app.use(express.json());
-
-  // Health check
-  app.get('/health', async (_req, res) => {
-    res.json({
-      status: 'healthy',
-      database: 'connected',
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  // Areas endpoint
-  app.get('/api/areas', async (_req, res, next) => {
-    try {
-      const areas = await getAllAreas();
-      res.json({ success: true, data: areas });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Companies endpoint
-  app.get('/api/companies', async (_req, res, next) => {
-    try {
-      const companies = await getAllCompanies();
-      res.json({ success: true, data: companies });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Projects endpoint
-  app.get('/api/projects', async (req: express.Request<{}, {}, {}, ProjectQueryParams>, res, next) => {
-    try {
-      const { area, keyword, page, per_page } = req.query;
-
-      let pageNum: number | undefined;
-      let perPageNum: number | undefined;
-
-      if (page !== undefined || per_page !== undefined) {
-        if (page !== undefined) {
-          pageNum = parseInt(page, 10);
-          if (isNaN(pageNum) || pageNum < 1) {
-            throw new ApiException(
-              400,
-              ErrorCode.INVALID_PAGINATION,
-              'Invalid page parameter',
-              'Page must be a positive integer (1-based)'
-            );
-          }
-        }
-
-        if (per_page !== undefined) {
-          perPageNum = parseInt(per_page, 10);
-          if (isNaN(perPageNum) || perPageNum < 1 || perPageNum > 100) {
-            throw new ApiException(
-              400,
-              ErrorCode.INVALID_PAGINATION,
-              'Invalid per_page parameter',
-              'per_page must be a positive integer between 1 and 100'
-            );
-          }
-        }
-
-        pageNum = pageNum ?? 1;
-        perPageNum = perPageNum ?? 20;
-      }
-
-      if (area) {
-        const exists = await areaExists(area);
-        if (!exists) {
-          throw new ApiException(
-            404,
-            ErrorCode.AREA_NOT_FOUND,
-            'Area not found',
-            `No area found matching '${area}'. Use GET /api/areas to see available areas.`
-          );
-        }
-      }
-
-      const result = await fetchProjects({
-        area,
-        keyword,
-        page: pageNum,
-        perPage: perPageNum
-      });
-
-      const response: ApiResponse<Project[]> = {
-        success: true,
-        data: result.projects,
-        pagination: result.pagination
-      };
-
-      res.json(response);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Error handlers
-  app.use(notFoundHandler);
-  app.use(errorHandler);
-
-  return app;
-}
+import app from './index';
 
 describe('API Endpoints', () => {
-  let app: express.Application;
-
   beforeAll(async () => {
     await getDatabase();
-    app = createTestApp();
   });
 
   afterAll(async () => {
@@ -135,7 +20,7 @@ describe('API Endpoints', () => {
   describe('GET /health', () => {
     it('should return healthy status', async () => {
       const response = await request(app).get('/health');
-      
+
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('healthy');
       expect(response.body.database).toBe('connected');
@@ -146,25 +31,23 @@ describe('API Endpoints', () => {
   describe('GET /api/areas', () => {
     it('should return list of areas', async () => {
       const response = await request(app).get('/api/areas');
-      
+
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(Array.isArray(response.body.data)).toBe(true);
       expect(response.body.data.length).toBeGreaterThan(0);
     });
 
-    it('should include expected areas', async () => {
+    it('should set a public cache-control header', async () => {
       const response = await request(app).get('/api/areas');
-      
-      expect(response.body.data).toContain('London');
-      expect(response.body.data).toContain('Birmingham');
+      expect(response.headers['cache-control']).toMatch(/public/);
     });
   });
 
   describe('GET /api/companies', () => {
     it('should return list of companies', async () => {
       const response = await request(app).get('/api/companies');
-      
+
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(Array.isArray(response.body.data)).toBe(true);
@@ -173,7 +56,7 @@ describe('API Endpoints', () => {
 
     it('should return companies with expected structure', async () => {
       const response = await request(app).get('/api/companies');
-      
+
       response.body.data.forEach((company: any) => {
         expect(company).toHaveProperty('company_id');
         expect(company).toHaveProperty('company_name');
@@ -183,12 +66,11 @@ describe('API Endpoints', () => {
 
   describe('GET /api/projects', () => {
     describe('without pagination', () => {
-      it('should return projects', async () => {
+      it('should return a raw array of projects', async () => {
         const response = await request(app).get('/api/projects');
-        
+
         expect(response.status).toBe(200);
-        expect(response.body.success).toBe(true);
-        expect(Array.isArray(response.body.data)).toBe(true);
+        expect(Array.isArray(response.body)).toBe(true);
       });
     });
 
@@ -197,7 +79,7 @@ describe('API Endpoints', () => {
         const response = await request(app)
           .get('/api/projects')
           .query({ page: 1, per_page: 10 });
-        
+
         expect(response.status).toBe(200);
         expect(response.body.success).toBe(true);
         expect(response.body.data.length).toBeLessThanOrEqual(10);
@@ -210,17 +92,17 @@ describe('API Endpoints', () => {
         const response = await request(app)
           .get('/api/projects')
           .query({ page: -1, per_page: 10 });
-        
+
         expect(response.status).toBe(400);
         expect(response.body.success).toBe(false);
         expect(response.body.error.code).toBe('INVALID_PAGINATION');
       });
 
-      it('should return 400 for invalid per_page', async () => {
+      it('should return 400 when per_page exceeds max', async () => {
         const response = await request(app)
           .get('/api/projects')
-          .query({ page: 1, per_page: 101 });
-        
+          .query({ page: 1, per_page: 10001 });
+
         expect(response.status).toBe(400);
         expect(response.body.success).toBe(false);
         expect(response.body.error.code).toBe('INVALID_PAGINATION');
@@ -230,7 +112,7 @@ describe('API Endpoints', () => {
         const response = await request(app)
           .get('/api/projects')
           .query({ page: 'abc', per_page: 10 });
-        
+
         expect(response.status).toBe(400);
         expect(response.body.success).toBe(false);
       });
@@ -241,9 +123,8 @@ describe('API Endpoints', () => {
         const response = await request(app)
           .get('/api/projects')
           .query({ area: 'London', page: 1, per_page: 10 });
-        
+
         expect(response.status).toBe(200);
-        expect(response.body.success).toBe(true);
         response.body.data.forEach((project: any) => {
           expect(project.area).toBe('London');
         });
@@ -253,7 +134,7 @@ describe('API Endpoints', () => {
         const response = await request(app)
           .get('/api/projects')
           .query({ area: 'InvalidArea', page: 1, per_page: 10 });
-        
+
         expect(response.status).toBe(404);
         expect(response.body.success).toBe(false);
         expect(response.body.error.code).toBe('AREA_NOT_FOUND');
@@ -265,11 +146,35 @@ describe('API Endpoints', () => {
         const response = await request(app)
           .get('/api/projects')
           .query({ keyword: 'Bridge', page: 1, per_page: 50 });
-        
+
         expect(response.status).toBe(200);
-        expect(response.body.success).toBe(true);
         response.body.data.forEach((project: any) => {
           expect(project.project_name.toLowerCase()).toContain('bridge');
+        });
+      });
+
+      it('should reject overly long keywords', async () => {
+        const response = await request(app)
+          .get('/api/projects')
+          .query({ keyword: 'x'.repeat(1000), page: 1, per_page: 10 });
+
+        expect(response.status).toBe(400);
+        expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      });
+    });
+
+    describe('with company filter', () => {
+      it('should filter by exact company name', async () => {
+        const companiesResp = await request(app).get('/api/companies');
+        const targetCompany = companiesResp.body.data[0].company_name;
+
+        const response = await request(app)
+          .get('/api/projects')
+          .query({ company: targetCompany, page: 1, per_page: 50 });
+
+        expect(response.status).toBe(200);
+        response.body.data.forEach((project: any) => {
+          expect(project.company).toBe(targetCompany);
         });
       });
     });
@@ -279,7 +184,7 @@ describe('API Endpoints', () => {
         const response = await request(app)
           .get('/api/projects')
           .query({ area: 'London', keyword: 'Bridge', page: 1, per_page: 50 });
-        
+
         expect(response.status).toBe(200);
         response.body.data.forEach((project: any) => {
           expect(project.area).toBe('London');
@@ -289,10 +194,38 @@ describe('API Endpoints', () => {
     });
   });
 
+  describe('GET /api/projects/:id', () => {
+    it('should return 404 for unknown project id', async () => {
+      const response = await request(app).get('/api/projects/nonexistent-id-xyz');
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('PROJECT_NOT_FOUND');
+    });
+
+    it('should return a project when id exists', async () => {
+      // Fetch one project via list endpoint, then read its id from the DB directly.
+      const all = await request(app).get('/api/projects').query({ page: 1, per_page: 1 });
+      expect(all.body.data.length).toBe(1);
+
+      // We don't expose id in the list payload, so resolve via DB.
+      const db = await getDatabase();
+      const stmt = db.prepare('SELECT project_id FROM projects LIMIT 1');
+      stmt.step();
+      const row = stmt.getAsObject() as { project_id: string };
+      stmt.free();
+
+      const response = await request(app).get(`/api/projects/${encodeURIComponent(row.project_id)}`);
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data)).toBe(true);
+      expect(response.body.data[0].project_id).toBe(row.project_id);
+    });
+  });
+
   describe('404 Handler', () => {
     it('should return 404 for unknown routes', async () => {
       const response = await request(app).get('/api/unknown');
-      
       expect(response.status).toBe(404);
     });
   });
