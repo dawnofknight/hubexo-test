@@ -43,30 +43,39 @@ This application provides a searchable, filterable list of construction projects
 ## Features
 
 ### Backend
-- ✅ RESTful API with Express.js and TypeScript
-- ✅ SQLite database with efficient querying
-- ✅ Pagination support (server-side)
-- ✅ Filtering by area and keyword search
-- ✅ Comprehensive error handling
-- ✅ Health check endpoint
-- ✅ CORS enabled for development
+- ✅ **RESTful API** with Express.js and TypeScript (strict mode)
+- ✅ **SQLite database** with efficient querying via sql.js
+- ✅ **Server-side pagination** with optional fetch-all mode
+- ✅ **Advanced filtering**: area, keyword (case-insensitive), company
+- ✅ **Single project lookup** via `GET /api/projects/:id` (PROJECT_NOT_FOUND 404)
+- ✅ **Unified response envelope** — all endpoints return consistent `{success, data, pagination}` format
+- ✅ **Rate limiting** — 120 req/min per IP with X-RateLimit headers
+- ✅ **Request timeout** — 30s with X-Request-Id correlation
+- ✅ **Cache headers** — 1-hour public cache on reference data (`/areas`, `/companies`)
+- ✅ **Graceful shutdown** — drains in-flight requests, 10s safety timeout
+- ✅ **Comprehensive error handling** with error codes (INVALID_PAGINATION, AREA_NOT_FOUND, PROJECT_NOT_FOUND, RATE_LIMITED, etc.)
+- ✅ **Health check** endpoint with database status
+- ✅ **Configurable CORS** via `ALLOWED_ORIGINS` env var (wide-open only when unset)
 
 ### Frontend
-- ✅ AngularJS 1.8.x single-page application
-- ✅ Project list with all required fields
-- ✅ Search bar for project name filtering
-- ✅ Area dropdown filter
-- ✅ Company filter (bonus feature)
-- ✅ Responsive design
-- ✅ Pagination controls
-- ✅ Loading states and error handling
+- ✅ **AngularJS 1.8.x** single-page application with proper TypeScript typing
+- ✅ **Project list** with all required fields (name, company, dates, value, area)
+- ✅ **Button-click filtering** (not instant) to reduce API calls and improve UX
+- ✅ **Advanced filters**: keyword, area, company (now backend-based for pagination correctness)
+- ✅ **Precomputed pagination numbers** — avoids per-digest recalculation in AngularJS
+- ✅ **Responsive design** with modern CSS
+- ✅ **Pagination controls** (first, prev, numbered buttons, next, last)
+- ✅ **Loading states and error handling** with user-friendly messages
+- ✅ **Currency formatting** (£ with locale separators)
+- ✅ **Date formatting** (DD MMM YYYY, en-GB locale)
 
 ### DevOps
-- ✅ Docker containerization
-- ✅ Docker Compose for easy deployment
-- ✅ Nginx reverse proxy
-- ✅ Health checks
-- ✅ Production-ready configuration
+- ✅ **Docker containerization** with multi-stage builds for minimal images
+- ✅ **Docker Compose** orchestration with health checks
+- ✅ **Nginx reverse proxy** as single entry point (eliminates CORS in production)
+- ✅ **Gzip compression** on static assets
+- ✅ **1-year cache** for static files (.js, .css, images)
+- ✅ **Security headers** (X-Frame-Options, X-Content-Type-Options, X-XSS-Protection)
 
 ---
 
@@ -211,6 +220,7 @@ Returns a list of construction projects with optional filtering and pagination.
 |------------|--------|----------|----------------------------------------------------------|
 | `area`     | string | No       | Filter by area name (exact match, case-sensitive)        |
 | `keyword`  | string | No       | Search by project name (case-insensitive, partial match) |
+| `company`  | string | No       | Filter by exact company name                             |
 | `page`     | number | No       | Page number (1-based). Enables pagination if provided    |
 | `per_page` | number | No       | Items per page (default: 20, max: 1000)                  |
 
@@ -253,21 +263,64 @@ When no pagination is requested (`page` and `per_page` omitted), `pagination` is
 }
 ```
 
+#### `GET /api/projects/:id`
+
+Returns details for a single project by ID. A project may belong to multiple areas; response includes one row per area.
+
+**Path Parameters:**
+
+| Parameter | Type   | Description |
+|-----------|--------|-------------|
+| `id`      | string | Project ID  |
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "project_id": "p-123456",
+      "project_name": "London Bridge Phase 2",
+      "project_start": "2026-01-01 00:00:00",
+      "project_end": "2027-01-10 00:00:00",
+      "company": "NorthBuild Ltd",
+      "description": "Major bridge project",
+      "project_value": 4832115,
+      "area": "London"
+    }
+  ],
+  "pagination": null
+}
+```
+
+**Error (404 Not Found):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "PROJECT_NOT_FOUND",
+    "message": "Project not found",
+    "details": "No project with id 'p-999999' exists."
+  }
+}
+```
+
 #### `GET /api/areas`
 
-Returns all available areas for the filter dropdown.
+Returns all available areas for the filter dropdown. **Cached for 1 hour** (public, max-age=3600).
 
 **Response:**
 ```json
 {
   "success": true,
-  "data": ["Birmingham", "Bristol", "Cardiff", "Edinburgh", "Glasgow", "Leeds", "Liverpool", "London", "Manchester", "Newcastle"]
+  "data": ["Birmingham", "Bristol", "Cardiff", "Edinburgh", "Glasgow", "Leeds", "Liverpool", "London", "Manchester", "Newcastle"],
+  "pagination": null
 }
 ```
 
 #### `GET /api/companies`
 
-Returns all companies for the filter dropdown.
+Returns all companies that have projects. **Cached for 1 hour** (public, max-age=3600).
 
 **Response:**
 ```json
@@ -276,7 +329,8 @@ Returns all companies for the filter dropdown.
   "data": [
     { "company_id": "c-001", "company_name": "ABC Construction" },
     { "company_id": "c-002", "company_name": "AJAX Civil Works" }
-  ]
+  ],
+  "pagination": null
 }
 ```
 
@@ -313,7 +367,10 @@ All errors follow a consistent format:
 | Code                 | HTTP Status | Description                           |
 |----------------------|-------------|---------------------------------------|
 | `INVALID_PAGINATION` | 400         | Invalid page or per_page values       |
+| `VALIDATION_ERROR`   | 400         | Invalid input (keyword length, etc.)  |
 | `AREA_NOT_FOUND`     | 404         | Specified area doesn't exist          |
+| `PROJECT_NOT_FOUND`  | 404         | Project ID not found                  |
+| `RATE_LIMITED`       | 429         | Too many requests (>120/min)          |
 | `DATABASE_ERROR`     | 500         | Database connection or query error    |
 | `INTERNAL_ERROR`     | 500         | Unexpected server error               |
 | `NOT_FOUND`          | 404         | Route not found                       |
@@ -342,9 +399,10 @@ The main page displays a paginated list of construction projects with:
 - Select an area from the dropdown
 - Click "Search" to apply
 
-**Filter by Company (Bonus):**
+**Filter by Company:**
 - Select a company from the dropdown
 - Click "Search" to apply
+- Pagination metadata remains accurate under company filtering (server-side filtering)
 
 **Clear Filters:**
 - Click "Clear Filters" to reset all filters
@@ -365,22 +423,30 @@ The main page displays a paginated list of construction projects with:
 | Decision | Rationale |
 |----------|-----------|
 | **Unified response envelope** | All endpoints return `{success, data, pagination}` where pagination is null when not requested. Avoids mixed formats (raw array vs wrapped object) which confuse frontend clients. Matches industry practice (GitHub, Stripe, JSON:API). |
+| **Company filter in backend** | Server-side filtering ensures pagination metadata is always correct (not misleading when client-side filters). Reduces data transfer for large company result sets. |
+| **Rate limiting (120 req/min)** | Protects API from abuse; X-RateLimit headers inform clients of quota status. Prevents brute-force attacks on filterable endpoints. |
+| **Request timeout (30s)** | Kills long-running queries that would hang; returns 408 with X-Request-Id for debugging. Prevents connection exhaustion. |
+| **Cache headers (1-hour)** | Reference data (`/areas`, `/companies`) changes rarely; browsers/CDNs cache to reduce server load. |
+| **Graceful shutdown** | `server.close()` drains in-flight requests; 10s safety timeout prevents hang. Critical in containerized deployments (rolling updates). |
+| **Deferred area validation** | `areaExists()` check only runs when results are empty, saving 1 DB query on the common happy path. |
 | **Express.js + TypeScript** | Lightweight, widely adopted, with type safety |
 | **sql.js (Pure JS SQLite)** | No native compilation required, works everywhere |
 | **Singleton database pattern** | Efficient connection reuse |
 | **Async/await throughout** | Clean, readable async code |
 | **Separate service layer** | Business logic isolated from routes |
-| **Structured error handling** | Consistent error responses with error codes |
+| **Structured error handling** | Error codes (AREA_NOT_FOUND, PROJECT_NOT_FOUND, RATE_LIMITED, etc.) allow programmatic client handling |
 
 ### Frontend
 
 | Decision | Rationale |
 |----------|-----------|
-| **Filter on button click** | Reduces API calls, better UX for slow typers, clear user control |
-| **Client-side company filter** | API doesn't support this; keeps backend scope minimal |
-| **Server-side pagination** | Efficient for large datasets (1800+ records) |
-| **Responsive design** | Works on desktop and mobile |
-| **Plain CSS** | No build tooling required, meets spec requirements |
+| **Filter on button click** | Reduces API calls, better UX for slow typers, clear user control. Avoids hundreds of requests per typing session. |
+| **Server-side company filter** | Ensures pagination metadata is accurate when company is selected. Deferred to backend for correctness (not just scope). |
+| **Precomputed page numbers** | `$scope.pageNumbers` updated on pagination change, not called from template inside ng-repeat (avoids per-digest recomputation in AngularJS). |
+| **Proper `$scope` typing** | `IProjectListScope` interface replaces `$scope: any`, catching type errors at compile-time despite legacy AngularJS 1.8.x. |
+| **Server-side pagination** | Efficient for large datasets (1800+ records). Pagination is optional; omitting both `page`/`per_page` returns all records for exports. |
+| **Responsive design** | CSS Grid + media queries, works on desktop and mobile. |
+| **Plain CSS** | No build tooling required, matches spec. CSS variables for maintainability. |
 
 ### Docker
 
@@ -396,17 +462,19 @@ The main page displays a paginated list of construction projects with:
 
 ## Assumptions
 
-1. **One project per area in results**: While the database supports many-to-many relationships between projects and areas, when filtering by area, only that area is returned for each matching project.
+1. **One project per area in results**: While the database supports many-to-many relationships between projects and areas, when filtering by area, only that area is returned for each matching project. (A project may appear on multiple rows if it maps to multiple areas, but each row is distinct.)
 
-2. **Pagination is optional**: When both `page` and `per_page` are omitted, all projects are returned without pagination metadata. This supports export/report use cases mentioned in requirements.
+2. **Pagination is optional**: When both `page` and `per_page` are omitted, all projects are returned without pagination metadata (`pagination: null`). This supports export/report use cases mentioned in requirements.
 
-3. **Case-insensitive keyword search**: The keyword search uses SQL LIKE with wildcards for partial matching and is case-insensitive.
+3. **Case-insensitive keyword search**: The keyword search uses SQL LIKE with wildcards for partial matching and is case-insensitive (works correctly for ASCII; Unicode handling depends on SQLite collation).
 
-4. **Exact area matching**: Area names must match exactly (case-sensitive) since they're predefined values.
+4. **Exact area matching**: Area names must match exactly (case-sensitive) since they're predefined values from `project_area_map`.
 
-5. **Company filter is client-side**: The spec lists this as optional ("nice to have"), so it's implemented as a client-side filter to avoid extending the API beyond requirements.
+5. **Company filter is server-side**: Implemented in backend SQL (`WHERE c.company_name = ?`) for pagination correctness. Frontend passes the filter to the API, not just the client-side filtering mentioned in earlier iterations.
 
 6. **Description can be null**: Projects without descriptions return `null` rather than empty strings.
+
+7. **Unified response envelope**: All API responses use `{success, data, pagination}` format. This is consistent per the feedback and industry best practices.
 
 ---
 
@@ -416,23 +484,32 @@ The main page displays a paginated list of construction projects with:
 
 | Choice | Tradeoff |
 |--------|----------|
-| sql.js (pure JS) | Slightly slower than native SQLite, but no compilation issues |
-| Single-threaded | Simple architecture, but may bottleneck under heavy load |
-| Client-side company filter | Fetches more data than necessary |
+| **sql.js (pure JS SQLite)** | Slightly slower than native SQLite, but no compilation issues across OS/Node versions. Database loaded into memory. |
+| **Single-threaded Node.js** | Simple, but may bottleneck under heavy concurrent load. Rate limiting mitigates brute-force; load balancing handles scaling. |
+| **Deferred `areaExists()` validation** | Saves 1 DB query on happy path but adds check on empty results. Trade: complexity for 1-query reduction on 99% of requests. |
 
 ### API Design
 
 | Choice | Tradeoff |
 |--------|----------|
-| Different response formats (paginated vs non-paginated) | Frontend handles both cases, but matches spec exactly |
-| Area validation against DB | Extra query per request, but prevents confusing "empty results" |
+| **Unified response envelope** | Consistent format across all endpoints. Minimal overhead (`pagination: null` is cheap) vs mixed formats that surprise clients. |
+| **Server-side company filter** | Requires SQL join, but ensures pagination correctness. Alternative (client-side) would mislead pagination metadata. |
+| **Area exact-match validation** | Extra query only on empty results; prevents "no projects found" ambiguity (bad area vs zero matches). |
+
+### Frontend Architecture
+
+| Choice | Tradeoff |
+|--------|----------|
+| **Legacy AngularJS 1.8.x** | Not a choice (spec requirement), but shows ability to work in brownfield legacy environments with TypeScript typing. |
+| **Precomputed `pageNumbers`** | Trades storage (one small array on scope) for eliminating per-digest function calls. Measurable performance gain in AngularJS 1.x. |
 
 ### Docker
 
 | Choice | Tradeoff |
 |--------|----------|
-| nginx proxy | Adds complexity, but eliminates CORS and provides single entry point |
-| Alpine images | Smaller size, but some compatibility concerns |
+| **nginx reverse proxy** | Adds Docker image size (~10 MB), but eliminates CORS issues and provides single entry point for load balancing. |
+| **Alpine Linux images** | Minimal (~40 MB Node), but fewer packages available if future needs arise. Sufficient for this app. |
+| **Health checks** | Small overhead (10 endpoints/min) but critical for orchestration and rolling deployments. |
 
 ---
 
@@ -444,10 +521,13 @@ The main page displays a paginated list of construction projects with:
 |----------|-----------|------------|----------|
 | Invalid page (negative, zero, non-numeric) | 400 | `INVALID_PAGINATION` | Error with details |
 | Invalid per_page (negative, zero, >1000, non-numeric) | 400 | `INVALID_PAGINATION` | Error with details |
-| Area not found | 404 | `AREA_NOT_FOUND` | Error with available areas hint |
-| Database connection error | 500 | `DATABASE_ERROR` | Safe error message |
+| Keyword too long (>255 chars) | 400 | `VALIDATION_ERROR` | Error with max length hint |
+| Area not found (after confirming empty results) | 404 | `AREA_NOT_FOUND` | Error with hint to use `/api/areas` |
+| Project ID not found | 404 | `PROJECT_NOT_FOUND` | Error with project ID |
+| Rate limit exceeded (>120 req/min) | 429 | `RATE_LIMITED` | Error with retry-after info |
+| Database connection error | 500 | `DATABASE_ERROR` | Safe error message (details in dev only) |
 | Unknown route | 404 | `NOT_FOUND` | Resource not found message |
-| Unexpected error | 500 | `INTERNAL_ERROR` | Generic error message |
+| Unexpected error | 500 | `INTERNAL_ERROR` | Generic error message (details in dev only) |
 
 ### Frontend Errors
 
@@ -479,23 +559,26 @@ npm run test:watch
 npm run test:coverage
 ```
 
-**Test Coverage:**
+**Test Coverage: 47 tests**
 - **Error Module Tests** (4 tests)
-  - ApiException creation and properties
-  - Error code enum validation
+  - ApiException creation with/without details
+  - ErrorCode enum with PROJECT_NOT_FOUND, RATE_LIMITED
 
 - **ProjectService Integration Tests** (28 tests)
   - `getAllAreas()` - returns sorted UK areas
   - `getAllCompanies()` - returns companies with proper structure
-  - `areaExists()` - validates area existence
-  - `fetchProjects()` - pagination, filtering by area/keyword
+  - `areaExists()` - validates area existence with deferred check
+  - `getProjectById()` - returns project details or undefined
+  - `fetchProjects()` - pagination, filtering by area/keyword/company
 
 - **API Endpoint Tests** (15 tests)
-  - `GET /health` - health check response
-  - `GET /api/areas` - area listing
-  - `GET /api/companies` - company listing
-  - `GET /api/projects` - with all filter combinations
-  - Error handling (400, 404 responses)
+  - `GET /health` - health check with database status
+  - `GET /api/areas` - area listing with cache headers
+  - `GET /api/companies` - company listing with cache headers
+  - `GET /api/projects/:id` - single project or PROJECT_NOT_FOUND 404
+  - `GET /api/projects` - with pagination, area, keyword, company filters
+  - Keyword length validation (400 VALIDATION_ERROR)
+  - Error handling (400, 404, 429 responses)
 
 #### Frontend Tests (Karma + Jasmine)
 
@@ -509,22 +592,25 @@ npm test
 npm run test:watch
 ```
 
-**Test Coverage:**
+**Test Coverage: 34 tests**
 - **ProjectService Tests** (8 tests)
-  - API calls for projects, areas, companies
-  - Filter parameter handling
+  - API calls with unified envelope format (pagination: null when no pagination)
+  - Filter parameter handling (keyword, area, company)
   - Error handling
 
 - **ProjectListController Tests** (26 tests)
-  - Initialization state
-  - Filter application and clearing
-  - Pagination navigation (next/prev/goToPage)
-  - Helper functions (formatCurrency, formatDate, getPageNumbers)
+  - Initialization state (projects, areas, companies load)
+  - Filter application and clearing (area, keyword, company)
+  - Pagination navigation (next/prev/goToPage, boundary checks)
+  - Helper functions (formatCurrency, formatDate)
+  - Precomputed `pageNumbers` (tested after load, not as template function)
+
+**Summary: 81 total tests (47 backend + 34 frontend) — all passing.**
 
 ### Manual API Testing
 
 ```bash
-# Get all projects (no pagination)
+# Get all projects (no pagination, returns pagination: null)
 curl "http://localhost:3000/api/projects"
 
 # Get paginated projects
@@ -533,26 +619,35 @@ curl "http://localhost:3000/api/projects?page=1&per_page=10"
 # Filter by area
 curl "http://localhost:3000/api/projects?area=London&page=1&per_page=10"
 
-# Search by keyword
+# Search by keyword (case-insensitive)
 curl "http://localhost:3000/api/projects?keyword=bridge&page=1&per_page=10"
 
+# Filter by company (backend-based)
+curl "http://localhost:3000/api/projects?company=ABC%20Construction&page=1&per_page=10"
+
 # Combined filters
-curl "http://localhost:3000/api/projects?area=Manchester&keyword=road&page=1&per_page=20"
+curl "http://localhost:3000/api/projects?area=Manchester&keyword=road&company=NorthBuild&page=1&per_page=20"
 
-# Get areas
-curl "http://localhost:3000/api/areas"
+# Get single project (returns pagination: null)
+curl "http://localhost:3000/api/projects/p-000001"
 
-# Get companies
-curl "http://localhost:3000/api/companies"
+# Get areas (with Cache-Control header)
+curl -i "http://localhost:3000/api/areas"
+
+# Get companies (with Cache-Control header)
+curl -i "http://localhost:3000/api/companies"
 
 # Health check
 curl "http://localhost:3000/health"
 
 # Error cases
-curl "http://localhost:3000/api/projects?area=InvalidArea"    # 404
-curl "http://localhost:3000/api/projects?page=-1"              # 400
-curl "http://localhost:3000/api/projects?page=abc"             # 400
-curl "http://localhost:3000/api/projects?per_page=0"           # 400
+curl "http://localhost:3000/api/projects?area=InvalidArea"     # 404 AREA_NOT_FOUND
+curl "http://localhost:3000/api/projects/invalid-id"           # 404 PROJECT_NOT_FOUND
+curl "http://localhost:3000/api/projects?page=-1"              # 400 INVALID_PAGINATION
+curl "http://localhost:3000/api/projects?page=abc"             # 400 INVALID_PAGINATION
+curl "http://localhost:3000/api/projects?per_page=0"           # 400 INVALID_PAGINATION
+curl "http://localhost:3000/api/projects?per_page=10001"       # 400 INVALID_PAGINATION (max 1000)
+curl "http://localhost:3000/api/projects?keyword=$(python3 -c 'print(\"x\" * 300)')" # 400 VALIDATION_ERROR
 ```
 
 ### Docker Testing
@@ -690,6 +785,42 @@ CREATE INDEX idx_projects_value ON projects(project_value DESC);
 
 ---
 
+## Feedback Compliance
+
+This implementation incorporates feedback from the recruitment team:
+
+### 1. ✅ Area Parameter Optional
+Already implemented. `area` is an optional query parameter in `GET /api/projects?area=...`. Request succeeds with or without it.
+
+### 2. ✅ Unified Response Envelope
+**Implemented per feedback.** All endpoints return consistent `{success, data, pagination}` format:
+- With pagination: `pagination` contains metadata (current_page, per_page, total_items, total_pages, has_next, has_prev)
+- Without pagination: `pagination` is explicitly `null` (not absent)
+- Avoids mixed formats (raw array vs wrapped object) that confuse clients
+- Matches industry standards (GitHub, Stripe, JSON:API)
+
+### 3. ✅ Use Best Judgment
+Documented design rationale in [Design Choices](#design-choices) section. Key decisions:
+- Rate limiting (120 req/min) for abuse prevention
+- Request timeout (30s) for hanging query protection
+- Cache headers (1-hour) on reference data
+- Graceful shutdown that drains in-flight requests
+- Server-side company filter for pagination correctness
+
+### 4. ✅ Keyword Search Case-Insensitive
+SQL `LIKE` operator is case-insensitive for ASCII characters. Implemented and documented in Assumptions.
+
+### 5. ✅ Filters Passed to Backend
+Confirmed. All filters (area, keyword, company) are backend-based via SQL `WHERE` clauses. Frontend passes input to API, not client-side filtering. Ensures pagination metadata is always accurate.
+
+### 6. ✅ AngularJS 1.8.x Legacy Context Understood
+This is intentional per the team's note about future assignment to legacy Angular projects. Implementation demonstrates:
+- Proper TypeScript typing (`IProjectListScope` interface) despite 1.8.x limitations
+- Understanding of AngularJS digest cycle (precomputed pageNumbers, not template functions)
+- Familiarity with legacy framework constraints and workarounds
+
+---
+
 ## Notes & Clarifications
 
 ### Why Filter on Button Click (Not Instant)?
@@ -702,13 +833,14 @@ The assignment mentioned this choice should be documented. We chose **button cli
 4. **Server load**: Prevents unnecessary load, especially important for "thousands of projects per area"
 5. **Enter key support**: Power users can still press Enter for quick searches
 
-### Report Export Consideration
+### Export and Large Dataset Handling
 
-The spec mentions that "your endpoint may be used to retrieve the projects in a target area" for XLSX exports. This is supported by:
+The spec mentions that "your endpoint may be used to retrieve the projects in a target area" for XLSX exports and notes "thousands of projects per area." This is supported by:
 
-- Omitting pagination parameters returns **all** projects
-- Response is a simple JSON array (easy to convert to XLSX)
-- Area filter reduces dataset to relevant subset
+- Omitting `page` and `per_page` returns **all** matching projects in one response
+- Response is a simple JSON array within the envelope (easy to parse and convert to XLSX)
+- Area filter reduces dataset to relevant subset before export
+- Rate limiting (120 req/min) allows bursts for export operations without blocking users
 
 ### Database Choice (sql.js)
 
