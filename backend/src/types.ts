@@ -35,11 +35,12 @@ export interface PaginationMeta {
 
 /**
  * Standard API response wrapper
+ * pagination is null when no pagination was requested (fetch all mode)
  */
 export interface ApiResponse<T> {
   success: boolean;
   data: T;
-  pagination?: PaginationMeta;
+  pagination: PaginationMeta | null;
 }
 
 /**

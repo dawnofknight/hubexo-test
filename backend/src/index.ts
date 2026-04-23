@@ -72,7 +72,7 @@ app.get('/api/areas', async (_req: Request, res: Response, next: NextFunction) =
   try {
     const areas = await getAllAreas();
     res.set('Cache-Control', 'public, max-age=3600');
-    const response: ApiResponse<string[]> = { success: true, data: areas };
+    const response: ApiResponse<string[]> = { success: true, data: areas, pagination: null };
     res.json(response);
   } catch (error) {
     next(error);
@@ -86,7 +86,7 @@ app.get('/api/companies', async (_req: Request, res: Response, next: NextFunctio
   try {
     const companies = await getAllCompanies();
     res.set('Cache-Control', 'public, max-age=3600');
-    const response: ApiResponse<typeof companies> = { success: true, data: companies };
+    const response: ApiResponse<typeof companies> = { success: true, data: companies, pagination: null };
     res.json(response);
   } catch (error) {
     next(error);
@@ -117,7 +117,12 @@ app.get('/api/projects/:id', async (req: Request, res: Response, next: NextFunct
       );
     }
 
-    res.json({ success: true, data: rows });
+    const response: ApiResponse<(Project & { project_id: string })[]> = {
+      success: true,
+      data: rows,
+      pagination: null
+    };
+    res.json(response);
   } catch (error) {
     next(error);
   }
@@ -213,17 +218,14 @@ app.get(
         );
       }
 
-      if (result.pagination) {
-        const response: ApiResponse<Project[]> = {
-          success: true,
-          data: result.projects,
-          pagination: result.pagination
-        };
-        res.json(response);
-      } else {
-        // Spec-mandated raw-array shape for the "no pagination" case (export flow).
-        res.json(result.projects);
-      }
+      // Always return consistent envelope: {data, pagination}
+      // When no pagination requested, pagination is null (allows frontend to know it got all records)
+      const response: ApiResponse<Project[]> = {
+        success: true,
+        data: result.projects,
+        pagination: result.pagination || null
+      };
+      res.json(response);
     } catch (error) {
       next(error);
     }

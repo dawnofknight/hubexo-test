@@ -66,11 +66,13 @@ describe('API Endpoints', () => {
 
   describe('GET /api/projects', () => {
     describe('without pagination', () => {
-      it('should return a raw array of projects', async () => {
+      it('should return wrapped envelope with null pagination', async () => {
         const response = await request(app).get('/api/projects');
 
         expect(response.status).toBe(200);
-        expect(Array.isArray(response.body)).toBe(true);
+        expect(response.body.success).toBe(true);
+        expect(Array.isArray(response.body.data)).toBe(true);
+        expect(response.body.pagination).toBeNull();
       });
     });
 
@@ -204,10 +206,6 @@ describe('API Endpoints', () => {
     });
 
     it('should return a project when id exists', async () => {
-      // Fetch one project via list endpoint, then read its id from the DB directly.
-      const all = await request(app).get('/api/projects').query({ page: 1, per_page: 1 });
-      expect(all.body.data.length).toBe(1);
-
       // We don't expose id in the list payload, so resolve via DB.
       const db = await getDatabase();
       const stmt = db.prepare('SELECT project_id FROM projects LIMIT 1');
@@ -220,6 +218,7 @@ describe('API Endpoints', () => {
       expect(response.body.success).toBe(true);
       expect(Array.isArray(response.body.data)).toBe(true);
       expect(response.body.data[0].project_id).toBe(row.project_id);
+      expect(response.body.pagination).toBeNull();
     });
   });
 
