@@ -235,6 +235,30 @@ To stop the services:
 docker-compose down
 ```
 
+### Fallback: Using run.sh Script
+
+If Docker is not available or fails, use the included `run.sh` script as a fallback:
+
+```bash
+# Make the script executable (first time only)
+chmod +x run.sh
+
+# Run both backend and frontend services
+./run.sh
+```
+
+The script will:
+- ✓ Check Node.js installation
+- ✓ Install dependencies for both services
+- ✓ Build TypeScript code
+- ✓ Start both backend and frontend
+
+Access the application:
+- **Frontend**: http://localhost:8080
+- **Backend API**: http://localhost:3000/api
+
+To stop: Press `Ctrl+C`
+
 ### Manual Setup
 
 #### Prerequisites
