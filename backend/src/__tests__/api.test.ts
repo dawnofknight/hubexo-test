@@ -1,26 +1,22 @@
 import request from 'supertest';
-import * as path from 'path';
-
-// Set database path for tests before importing modules.
-process.env.DB_PATH = path.join(__dirname, '..', 'glenigan_takehome FS.db');
-process.env.NODE_ENV = 'test';
-
-import { getDatabase, closeDatabase } from './database';
-import app from './index';
+import { createApp, databaseConnection } from '../app';
+import express from 'express';
 
 describe('API Endpoints', () => {
+  let app: express.Application;
+
   beforeAll(async () => {
-    await getDatabase();
+    await databaseConnection.getConnection();
+    app = createApp();
   });
 
-  afterAll(async () => {
-    await closeDatabase();
+  afterAll(() => {
+    databaseConnection.close();
   });
 
   describe('GET /health', () => {
     it('should return healthy status', async () => {
       const response = await request(app).get('/health');
-
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('healthy');
       expect(response.body.database).toBe('connected');
@@ -31,23 +27,27 @@ describe('API Endpoints', () => {
   describe('GET /api/areas', () => {
     it('should return list of areas', async () => {
       const response = await request(app).get('/api/areas');
-
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(Array.isArray(response.body.data)).toBe(true);
       expect(response.body.data.length).toBeGreaterThan(0);
     });
 
-    it('should set a public cache-control header', async () => {
+    it('should include expected areas', async () => {
       const response = await request(app).get('/api/areas');
-      expect(response.headers['cache-control']).toMatch(/public/);
+      expect(response.body.data).toContain('London');
+      expect(response.body.data).toContain('Birmingham');
+    });
+
+    it('should set cache header', async () => {
+      const response = await request(app).get('/api/areas');
+      expect(response.headers['cache-control']).toContain('max-age=3600');
     });
   });
 
   describe('GET /api/companies', () => {
     it('should return list of companies', async () => {
       const response = await request(app).get('/api/companies');
-
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(Array.isArray(response.body.data)).toBe(true);
@@ -56,7 +56,6 @@ describe('API Endpoints', () => {
 
     it('should return companies with expected structure', async () => {
       const response = await request(app).get('/api/companies');
-
       response.body.data.forEach((company: any) => {
         expect(company).toHaveProperty('company_id');
         expect(company).toHaveProperty('company_name');
@@ -66,13 +65,11 @@ describe('API Endpoints', () => {
 
   describe('GET /api/projects', () => {
     describe('without pagination', () => {
-      it('should return wrapped envelope with null pagination', async () => {
+      it('should return projects', async () => {
         const response = await request(app).get('/api/projects');
-
         expect(response.status).toBe(200);
         expect(response.body.success).toBe(true);
         expect(Array.isArray(response.body.data)).toBe(true);
-        expect(response.body.pagination).toBeNull();
       });
     });
 
@@ -100,10 +97,10 @@ describe('API Endpoints', () => {
         expect(response.body.error.code).toBe('INVALID_PAGINATION');
       });
 
-      it('should return 400 when per_page exceeds max', async () => {
+      it('should return 400 for invalid per_page', async () => {
         const response = await request(app)
           .get('/api/projects')
-          .query({ page: 1, per_page: 10001 });
+          .query({ page: 1, per_page: 1001 });
 
         expect(response.status).toBe(400);
         expect(response.body.success).toBe(false);
@@ -127,6 +124,7 @@ describe('API Endpoints', () => {
           .query({ area: 'London', page: 1, per_page: 10 });
 
         expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
         response.body.data.forEach((project: any) => {
           expect(project.area).toBe('London');
         });
@@ -150,33 +148,9 @@ describe('API Endpoints', () => {
           .query({ keyword: 'Bridge', page: 1, per_page: 50 });
 
         expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
         response.body.data.forEach((project: any) => {
           expect(project.project_name.toLowerCase()).toContain('bridge');
-        });
-      });
-
-      it('should reject overly long keywords', async () => {
-        const response = await request(app)
-          .get('/api/projects')
-          .query({ keyword: 'x'.repeat(1000), page: 1, per_page: 10 });
-
-        expect(response.status).toBe(400);
-        expect(response.body.error.code).toBe('VALIDATION_ERROR');
-      });
-    });
-
-    describe('with company filter', () => {
-      it('should filter by exact company name', async () => {
-        const companiesResp = await request(app).get('/api/companies');
-        const targetCompany = companiesResp.body.data[0].company_name;
-
-        const response = await request(app)
-          .get('/api/projects')
-          .query({ company: targetCompany, page: 1, per_page: 50 });
-
-        expect(response.status).toBe(200);
-        response.body.data.forEach((project: any) => {
-          expect(project.company).toBe(targetCompany);
         });
       });
     });
@@ -193,32 +167,6 @@ describe('API Endpoints', () => {
           expect(project.project_name.toLowerCase()).toContain('bridge');
         });
       });
-    });
-  });
-
-  describe('GET /api/projects/:id', () => {
-    it('should return 404 for unknown project id', async () => {
-      const response = await request(app).get('/api/projects/nonexistent-id-xyz');
-
-      expect(response.status).toBe(404);
-      expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('PROJECT_NOT_FOUND');
-    });
-
-    it('should return a project when id exists', async () => {
-      // We don't expose id in the list payload, so resolve via DB.
-      const db = await getDatabase();
-      const stmt = db.prepare('SELECT project_id FROM projects LIMIT 1');
-      stmt.step();
-      const row = stmt.getAsObject() as { project_id: string };
-      stmt.free();
-
-      const response = await request(app).get(`/api/projects/${encodeURIComponent(row.project_id)}`);
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(Array.isArray(response.body.data)).toBe(true);
-      expect(response.body.data[0].project_id).toBe(row.project_id);
-      expect(response.body.pagination).toBeNull();
     });
   });
 

@@ -13,9 +13,12 @@ module.exports = function(config) {
       'node_modules/angular/angular.js',
       'node_modules/angular-mocks/angular-mocks.js',
       
-      // Compiled application files
+      // Compiled application files (order matters)
       'dist/types.js',
+      'dist/config/api.config.js',
       'dist/app.js',
+      'dist/services/project.service.js',
+      'dist/controllers/project-list.controller.js',
       
       // Test files
       'test/**/*.spec.js'

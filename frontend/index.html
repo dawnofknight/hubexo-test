@@ -190,8 +190,12 @@
   
   <!-- AngularJS -->
   <script src="node_modules/angular/angular.min.js"></script>
-  <!-- Application -->
+  
+  <!-- Application (load order matters) -->
   <script src="dist/types.js"></script>
+  <script src="dist/config/api.config.js"></script>
   <script src="dist/app.js"></script>
+  <script src="dist/services/project.service.js"></script>
+  <script src="dist/controllers/project-list.controller.js"></script>
 </body>
 </html>

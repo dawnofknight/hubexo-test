@@ -51,6 +51,9 @@ interface IFilterState {
   company: string;
 }
 
+/**
+ * Pagination state
+ */
 interface IPaginationState {
   currentPage: number;
   perPage: number;
@@ -60,6 +63,37 @@ interface IPaginationState {
   hasPrev: boolean;
 }
 
+/**
+ * Query parameters for project API
+ */
+interface IProjectQueryParams {
+  area?: string;
+  keyword?: string;
+  company?: string;
+  page?: number;
+  per_page?: number;
+}
+
+/**
+ * Result from getProjects
+ */
+interface IProjectsResult {
+  projects: IProject[];
+  pagination: IPaginationMeta | null;
+}
+
+/**
+ * Project Service interface
+ */
+interface IProjectService {
+  getProjects(params: IProjectQueryParams): ng.IPromise<IProjectsResult>;
+  getAreas(): ng.IPromise<string[]>;
+  getCompanies(): ng.IPromise<ICompany[]>;
+}
+
+/**
+ * Project List Controller Scope
+ */
 interface IProjectListScope extends ng.IScope {
   projects: IProject[];
   areas: string[];
