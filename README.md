@@ -32,6 +32,7 @@ A full-stack web application for browsing and filtering UK construction projects
 
 This application provides a searchable, filterable list of construction projects across the UK. It was built as a take-home assignment demonstrating:
 
+- **4-Layer Architecture** with SOLID principles
 - REST API design and implementation
 - Database querying with pagination
 - Error handling best practices
@@ -43,6 +44,9 @@ This application provides a searchable, filterable list of construction projects
 ## Features
 
 ### Backend
+- ✅ **4-Layer Architecture** — Domain, Infrastructure, Application, Presentation layers
+- ✅ **SOLID Principles** — Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion
+- ✅ **Dependency Injection** — Container-based DI for loose coupling and testability
 - ✅ **RESTful API** with Express.js and TypeScript (strict mode)
 - ✅ **SQLite database** with efficient querying via sql.js
 - ✅ **Server-side pagination** with optional fetch-all mode
@@ -50,68 +54,149 @@ This application provides a searchable, filterable list of construction projects
 - ✅ **Single project lookup** via `GET /api/projects/:id` (PROJECT_NOT_FOUND 404)
 - ✅ **Unified response envelope** — all endpoints return consistent `{success, data, pagination}` format
 - ✅ **Rate limiting** — 120 req/min per IP with X-RateLimit headers
-- ✅ **Request timeout** — 30s with X-Request-Id correlation
 - ✅ **Cache headers** — 1-hour public cache on reference data (`/areas`, `/companies`)
-- ✅ **Graceful shutdown** — drains in-flight requests, 10s safety timeout
-- ✅ **Comprehensive error handling** with error codes (INVALID_PAGINATION, AREA_NOT_FOUND, PROJECT_NOT_FOUND, RATE_LIMITED, etc.)
+- ✅ **Comprehensive error handling** with error codes
 - ✅ **Health check** endpoint with database status
-- ✅ **Configurable CORS** via `ALLOWED_ORIGINS` env var (wide-open only when unset)
+- ✅ **Configurable CORS** via `ALLOWED_ORIGINS` env var
 
 ### Frontend
+- ✅ **Component-based architecture** — Modular services, controllers, and config
 - ✅ **AngularJS 1.8.x** single-page application with proper TypeScript typing
 - ✅ **Project list** with all required fields (name, company, dates, value, area)
 - ✅ **Button-click filtering** (not instant) to reduce API calls and improve UX
-- ✅ **Advanced filters**: keyword, area, company (now backend-based for pagination correctness)
-- ✅ **Precomputed pagination numbers** — avoids per-digest recalculation in AngularJS
+- ✅ **Advanced filters**: keyword, area, company (backend-based for pagination correctness)
+- ✅ **Precomputed pagination numbers** — avoids per-digest recalculation
 - ✅ **Responsive design** with modern CSS
-- ✅ **Pagination controls** (first, prev, numbered buttons, next, last)
 - ✅ **Loading states and error handling** with user-friendly messages
-- ✅ **Currency formatting** (£ with locale separators)
-- ✅ **Date formatting** (DD MMM YYYY, en-GB locale)
 
 ### DevOps
 - ✅ **Docker containerization** with multi-stage builds for minimal images
 - ✅ **Docker Compose** orchestration with health checks
 - ✅ **Nginx reverse proxy** as single entry point (eliminates CORS in production)
-- ✅ **Gzip compression** on static assets
-- ✅ **1-year cache** for static files (.js, .css, images)
 - ✅ **Security headers** (X-Frame-Options, X-Content-Type-Options, X-XSS-Protection)
 
 ---
 
 ## Project Structure
 
+### Backend (4-Layer Architecture)
+
+```
+backend/src/
+├── app.ts                              # Application entry point
+├── container.ts                        # Dependency Injection container
+├── swagger.ts                          # OpenAPI documentation
+│
+├── config/                             # Configuration Layer
+│   └── app.config.ts                   # Centralized app settings
+│
+├── domain/                             # Layer 1: Domain (Business Rules)
+│   ├── entities/                       # Domain models
+│   │   ├── project.entity.ts           # Project entity & factory
+│   │   ├── company.entity.ts           # Company entity & factory
+│   │   ├── area.entity.ts              # Area entity & factory
+│   │   └── index.ts
+│   ├── repositories/                   # Repository interfaces (contracts)
+│   │   ├── project.repository.interface.ts
+│   │   ├── area.repository.interface.ts
+│   │   ├── company.repository.interface.ts
+│   │   └── index.ts
+│   ├── exceptions/                     # Domain exceptions
+│   │   ├── domain.exceptions.ts        # NotFoundException, ValidationException
+│   │   └── index.ts
+│   └── index.ts
+│
+├── infrastructure/                     # Layer 2: Infrastructure (Data Access)
+│   ├── database/                       # Database connection
+│   │   ├── database.ts                 # SQLite connection manager
+│   │   └── index.ts
+│   ├── repositories/                   # Repository implementations
+│   │   ├── project.repository.ts       # SQLite project queries
+│   │   ├── area.repository.ts          # SQLite area queries
+│   │   ├── company.repository.ts       # SQLite company queries
+│   │   └── index.ts
+│   └── index.ts
+│
+├── application/                        # Layer 3: Application (Use Cases)
+│   ├── dtos/                           # Data Transfer Objects
+│   │   └── index.ts                    # ProjectDTO, CompanyDTO, etc.
+│   ├── services/                       # Application services
+│   │   ├── project.service.ts          # Project use cases
+│   │   ├── area.service.ts             # Area use cases
+│   │   ├── company.service.ts          # Company use cases
+│   │   ├── health.service.ts           # Health check logic
+│   │   └── index.ts
+│   └── index.ts
+│
+├── presentation/                       # Layer 4: Presentation (HTTP)
+│   ├── controllers/                    # HTTP request handlers
+│   │   ├── project.controller.ts
+│   │   ├── area.controller.ts
+│   │   ├── company.controller.ts
+│   │   ├── health.controller.ts
+│   │   └── index.ts
+│   ├── routes/                         # Route definitions
+│   │   ├── project.routes.ts
+│   │   ├── area.routes.ts
+│   │   ├── company.routes.ts
+│   │   ├── health.routes.ts
+│   │   └── index.ts
+│   ├── middlewares/                    # Express middlewares
+│   │   ├── error.middleware.ts         # Global error handler
+│   │   ├── validation.middleware.ts    # Request validation
+│   │   └── index.ts
+│   └── index.ts
+│
+└── __tests__/                          # Test files
+    ├── api.test.ts                     # API integration tests
+    ├── repositories.test.ts            # Repository unit tests
+    └── exceptions.test.ts              # Exception unit tests
+```
+
+### Frontend (Component-Based)
+
+```
+frontend/src/
+├── app.ts                              # Module definition (entry point)
+├── types.ts                            # TypeScript interfaces
+│
+├── config/                             # Configuration
+│   └── api.config.ts                   # API endpoint configuration
+│
+├── services/                           # Services (data layer)
+│   └── project.service.ts              # API communication
+│
+└── controllers/                        # Controllers (UI logic)
+    └── project-list.controller.ts      # Project list view controller
+```
+
+### Root Structure
+
 ```
 glenigan-takehome/
-├── backend/                      # Express.js API
-│   ├── src/
-│   │   ├── index.ts              # Application entry point
-│   │   ├── database.ts           # SQLite database connection (sql.js)
-│   │   ├── projectService.ts     # Business logic for projects
-│   │   ├── types.ts              # TypeScript interfaces
-│   │   └── errors.ts             # Error handling utilities
-│   ├── glenigan_takehome FS.db   # SQLite database
-│   ├── Dockerfile                # Backend Docker configuration
-│   ├── .dockerignore
+├── backend/                            # Express.js API (4-layer)
+│   ├── src/                            # Source code (see above)
+│   ├── glenigan_takehome FS.db         # SQLite database
+│   ├── Dockerfile                      # Multi-stage Docker build
+│   ├── jest.config.js                  # Test configuration
 │   ├── package.json
 │   └── tsconfig.json
 │
-├── frontend/                     # AngularJS 1.8.x application
-│   ├── src/
-│   │   ├── app.ts                # Module, service, and controller
-│   │   └── types.ts              # TypeScript interfaces
-│   ├── dist/                     # Compiled JavaScript (generated)
-│   ├── index.html                # Main HTML page
-│   ├── styles.css                # CSS styling
-│   ├── nginx.conf                # Nginx configuration for Docker
-│   ├── Dockerfile                # Frontend Docker configuration
-│   ├── .dockerignore
+├── frontend/                           # AngularJS 1.8.x (component-based)
+│   ├── src/                            # Source code (see above)
+│   ├── dist/                           # Compiled JavaScript
+│   ├── test/                           # Jasmine test specs
+│   ├── index.html                      # Main HTML page
+│   ├── styles.css                      # CSS styling
+│   ├── nginx.conf                      # Nginx configuration
+│   ├── karma.conf.js                   # Test runner configuration
+│   ├── Dockerfile
 │   ├── package.json
 │   └── tsconfig.json
 │
-├── docker-compose.yml            # Docker Compose configuration
-├── .gitignore                    # Git ignore rules
-└── README.md                     # This file
+├── docker-compose.yml
+├── .gitignore
+└── README.md
 ```
 
 ---
