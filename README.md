@@ -732,6 +732,3 @@ This project was created as a take-home assignment for Glenigan.
 
 ---
 
-## Contact
-
-For questions about this assignment, contact: alvin.megatroika@bcicentral.hubexo.com
