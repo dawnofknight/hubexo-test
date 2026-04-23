@@ -136,6 +136,7 @@ docker-compose up -d --build
 Access the application:
 - **Frontend**: http://localhost:8080
 - **Backend API**: http://localhost:3000/api
+- **API Documentation (Swagger UI)**: http://localhost:3000/api-docs
 - **Health Check**: http://localhost:3000/health
 
 To stop the services:
@@ -207,6 +208,22 @@ Open http://localhost:8080 in your browser.
 ```
 http://localhost:3000/api
 ```
+
+### Interactive API Documentation (Swagger/OpenAPI)
+
+The backend includes comprehensive OpenAPI 3.0.0 documentation with an interactive **Swagger UI** for browser-based testing:
+
+**Access Swagger UI:**
+- http://localhost:3000/api-docs
+
+From the Swagger UI you can:
+- View complete endpoint specifications
+- See request/response schemas with examples
+- Test endpoints directly (try-it-out feature)
+- Explore error responses and status codes
+- Download OpenAPI specification as JSON/YAML
+
+The documentation includes all endpoints, query parameters, request/response bodies, and error codes with real-world examples.
 
 ### Endpoints
 
