@@ -33,14 +33,7 @@ describe('ProjectService', function() {
           { project_name: 'Test Project 1', area: 'London', project_value: 1000000 },
           { project_name: 'Test Project 2', area: 'Birmingham', project_value: 2000000 }
         ],
-        pagination: {
-          current_page: 1,
-          per_page: 20,
-          total_items: 2,
-          total_pages: 1,
-          has_next: false,
-          has_prev: false
-        }
+        pagination: null
       };
 
       $httpBackend.expectGET(API_BASE_URL + '/projects').respond(200, mockResponse);
@@ -54,7 +47,7 @@ describe('ProjectService', function() {
 
       expect(result).toBeDefined();
       expect(result.projects.length).toBe(2);
-      expect(result.pagination.total_items).toBe(2);
+      expect(result.pagination).toBeNull();
     });
 
     it('should fetch projects with area filter', function() {

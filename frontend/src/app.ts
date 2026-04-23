@@ -32,17 +32,13 @@ app.factory('ProjectService', ['$http', '$q', function($http: ng.IHttpService, $
     if (params.page) queryParams.page = params.page;
     if (params.per_page) queryParams.per_page = params.per_page;
 
-    return $http.get<IApiResponse<IProject[]> | IProject[]>(API_BASE_URL + '/projects', { params: queryParams })
+    return $http.get<IApiResponse<IProject[]>>(API_BASE_URL + '/projects', { params: queryParams })
       .then(function(response) {
-        if (Array.isArray(response.data)) {
-          return { projects: response.data };
-        } else {
-          const apiResponse = response.data as IApiResponse<IProject[]>;
-          return {
-            projects: apiResponse.data,
-            pagination: apiResponse.pagination
-          };
-        }
+        const apiResponse = response.data as IApiResponse<IProject[]>;
+        return {
+          projects: apiResponse.data,
+          pagination: apiResponse.pagination
+        };
       })
       .catch(function(error) {
         console.error('Error fetching projects:', error);
@@ -147,10 +143,11 @@ app.controller('ProjectListController', [
       if ($scope.filters.company) params.company = $scope.filters.company;
 
       ProjectService.getProjects(params)
-        .then(function(result: { projects: IProject[]; pagination?: IPaginationMeta }) {
+        .then(function(result: { projects: IProject[]; pagination: IPaginationMeta | null }) {
           $scope.projects = result.projects;
 
           if (result.pagination) {
+            // Pagination was requested; use server-provided metadata
             $scope.pagination.currentPage = result.pagination.current_page;
             $scope.pagination.perPage = result.pagination.per_page;
             $scope.pagination.totalItems = result.pagination.total_items;
@@ -158,6 +155,8 @@ app.controller('ProjectListController', [
             $scope.pagination.hasNext = result.pagination.has_next;
             $scope.pagination.hasPrev = result.pagination.has_prev;
           } else {
+            // No pagination (fetch all mode); results fit on one page
+            $scope.pagination.currentPage = 1;
             $scope.pagination.totalItems = result.projects.length;
             $scope.pagination.totalPages = 1;
             $scope.pagination.hasNext = false;

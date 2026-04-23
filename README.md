@@ -216,22 +216,8 @@ Returns a list of construction projects with optional filtering and pagination.
 
 **Response Format:**
 
-*Without pagination (all results):*
-```json
-[
-  {
-    "project_name": "Manchester Bridge Phase 2",
-    "project_start": "2026-01-01 00:00:00",
-    "project_end": "2027-01-10 00:00:00",
-    "company": "NorthBuild Ltd",
-    "description": "A major bridge construction project",
-    "project_value": 4832115,
-    "area": "Manchester"
-  }
-]
-```
+All endpoints return a consistent envelope:
 
-*With pagination:*
 ```json
 {
   "success": true,
@@ -254,6 +240,16 @@ Returns a list of construction projects with optional filtering and pagination.
     "has_next": true,
     "has_prev": false
   }
+}
+```
+
+When no pagination is requested (`page` and `per_page` omitted), `pagination` is `null`:
+
+```json
+{
+  "success": true,
+  "data": [ ... ],
+  "pagination": null
 }
 ```
 
@@ -368,12 +364,13 @@ The main page displays a paginated list of construction projects with:
 
 | Decision | Rationale |
 |----------|-----------|
+| **Unified response envelope** | All endpoints return `{success, data, pagination}` where pagination is null when not requested. Avoids mixed formats (raw array vs wrapped object) which confuse frontend clients. Matches industry practice (GitHub, Stripe, JSON:API). |
 | **Express.js + TypeScript** | Lightweight, widely adopted, with type safety |
 | **sql.js (Pure JS SQLite)** | No native compilation required, works everywhere |
 | **Singleton database pattern** | Efficient connection reuse |
 | **Async/await throughout** | Clean, readable async code |
 | **Separate service layer** | Business logic isolated from routes |
-| **Structured error handling** | Consistent error responses |
+| **Structured error handling** | Consistent error responses with error codes |
 
 ### Frontend
 
