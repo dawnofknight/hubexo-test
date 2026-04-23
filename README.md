@@ -249,19 +249,38 @@ chmod +x run.sh
 ```
 
 The script will:
-- ✓ Check Node.js installation
+- ✓ Check Node.js installation (18+)
+- ✓ Verify port availability (3000, 8080)
 - ✓ Install dependencies for both services
 - ✓ Build TypeScript code
-- ✓ Automatically set up database file (copies to project root if needed)
-- ✓ Start both backend and frontend
+- ✓ Automatically set up database file
+- ✓ Verify services are responding
+- ✓ Log all output to `run.log`
+- ✓ Handle graceful shutdown (Ctrl+C)
 
 Access the application:
 - **Frontend**: http://localhost:8080
 - **Backend API**: http://localhost:3000/api
+- **API Docs**: http://localhost:3000/api-docs
 
 To stop: Press `Ctrl+C`
 
-**Database**: The script automatically handles the SQLite database file (`glenigan_takehome FS.db`) located in the backend directory, ensuring it's accessible when the services start.
+**Database**: The script automatically handles the SQLite database file (`glenigan_takehome FS.db`) located in the backend directory.
+
+#### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `Port 3000 already in use` | Script auto-kills the process. If still fails, manually: `lsof -ti:3000 \| xargs kill -9` |
+| `Port 8080 already in use` | Script auto-kills the process. If still fails, manually: `lsof -ti:8080 \| xargs kill -9` |
+| `Node.js not found` | Install from [nodejs.org](https://nodejs.org/) (requires Node 18+) |
+| `npm ERR! code EACCES` | Permission issue. Run: `sudo chown -R $(whoami) ~/.npm` |
+| `Backend starts but frontend doesn't` | Check `run.log` for errors. May need more time to start on slow systems. |
+| `Cannot find database file` | Ensure `backend/glenigan_takehome FS.db` exists |
+| `Connection refused` errors | Services may still be starting. Wait 5-10 seconds and refresh browser. |
+| `EMFILE: too many open files` | Increase file descriptor limit: `ulimit -n 4096` |
+
+**View full logs**: `cat run.log`
 
 ### Manual Setup
 
