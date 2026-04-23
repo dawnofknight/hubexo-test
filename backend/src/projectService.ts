@@ -48,11 +48,52 @@ export async function areaExists(area: string): Promise<boolean> {
 }
 
 /**
+ * Fetch a single project by its ID. Returns undefined if not found.
+ * A project may map to multiple areas; we return one row per area so the
+ * caller can choose how to present them (UI shows them as a list).
+ */
+export async function getProjectById(projectId: string): Promise<(Project & { project_id: string })[] | undefined> {
+  const db = await getDatabase();
+  const rows = queryAll<ProjectRow & { project_id: string }>(
+    db,
+    `SELECT
+       p.project_id,
+       p.project_name,
+       p.project_start,
+       p.project_end,
+       c.company_name,
+       p.description,
+       p.project_value,
+       pam.area
+     FROM projects p
+     INNER JOIN companies c ON p.company_id = c.company_id
+     INNER JOIN project_area_map pam ON p.project_id = pam.project_id
+     WHERE p.project_id = ?
+     ORDER BY pam.area ASC`,
+    [projectId]
+  );
+
+  if (rows.length === 0) return undefined;
+
+  return rows.map(row => ({
+    project_id: row.project_id,
+    project_name: row.project_name,
+    project_start: row.project_start,
+    project_end: row.project_end,
+    company: row.company_name,
+    description: row.description,
+    project_value: row.project_value,
+    area: row.area
+  }));
+}
+
+/**
  * Query parameters for fetching projects
  */
 interface FetchProjectsParams {
   area?: string;
   keyword?: string;
+  company?: string;
   page?: number;
   perPage?: number;
 }
@@ -70,7 +111,7 @@ interface FetchProjectsResult {
  */
 export async function fetchProjects(params: FetchProjectsParams): Promise<FetchProjectsResult> {
   const db = await getDatabase();
-  const { area, keyword, page, perPage } = params;
+  const { area, keyword, company, page, perPage } = params;
 
   // Build base query with JOINs
   // Note: A project can belong to multiple areas via project_area_map
@@ -98,10 +139,16 @@ export async function fetchProjects(params: FetchProjectsParams): Promise<FetchP
     queryParams.push(area);
   }
 
-  // Search by keyword in project name (case-insensitive)
+  // Search by keyword in project name (case-insensitive for ASCII via LIKE)
   if (keyword) {
     conditions.push('p.project_name LIKE ?');
     queryParams.push(`%${keyword}%`);
+  }
+
+  // Filter by exact company name (uses JOINed companies table)
+  if (company) {
+    conditions.push('c.company_name = ?');
+    queryParams.push(company);
   }
 
   // Append WHERE clause if we have conditions
@@ -121,6 +168,7 @@ export async function fetchProjects(params: FetchProjectsParams): Promise<FetchP
           p.project_id,
           pam.area
         FROM projects p
+        INNER JOIN companies c ON p.company_id = c.company_id
         INNER JOIN project_area_map pam ON p.project_id = pam.project_id
         ${conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''}
       )

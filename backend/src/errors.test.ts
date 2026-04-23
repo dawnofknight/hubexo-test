@@ -40,7 +40,8 @@ describe('Errors Module', () => {
     it('should have all expected error codes', () => {
       expect(ErrorCode.INVALID_PAGINATION).toBe('INVALID_PAGINATION');
       expect(ErrorCode.AREA_NOT_FOUND).toBe('AREA_NOT_FOUND');
-      expect(ErrorCode.NO_PROJECTS_FOUND).toBe('NO_PROJECTS_FOUND');
+      expect(ErrorCode.PROJECT_NOT_FOUND).toBe('PROJECT_NOT_FOUND');
+      expect(ErrorCode.RATE_LIMITED).toBe('RATE_LIMITED');
       expect(ErrorCode.DATABASE_ERROR).toBe('DATABASE_ERROR');
       expect(ErrorCode.INTERNAL_ERROR).toBe('INTERNAL_ERROR');
       expect(ErrorCode.VALIDATION_ERROR).toBe('VALIDATION_ERROR');

@@ -144,7 +144,7 @@
       
       <span class="page-numbers">
         <button 
-          ng-repeat="pageNum in getPageNumbers()" 
+          ng-repeat="pageNum in pageNumbers"
           class="btn btn-page"
           ng-class="{'active': pageNum === pagination.currentPage}"
           ng-click="goToPage(pageNum)"

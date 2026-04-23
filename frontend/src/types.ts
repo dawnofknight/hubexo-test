@@ -50,3 +50,34 @@ interface IFilterState {
   area: string;
   company: string;
 }
+
+interface IPaginationState {
+  currentPage: number;
+  perPage: number;
+  totalItems: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
+interface IProjectListScope extends ng.IScope {
+  projects: IProject[];
+  areas: string[];
+  companies: ICompany[];
+  loading: boolean;
+  error: string | null;
+  filters: IFilterState;
+  pagination: IPaginationState;
+  perPageOptions: number[];
+  pageNumbers: number[];
+  loadProjects: () => void;
+  loadFilterOptions: () => void;
+  applyFilters: () => void;
+  clearFilters: () => void;
+  goToPage: (page: number) => void;
+  nextPage: () => void;
+  prevPage: () => void;
+  changePerPage: () => void;
+  formatCurrency: (value: number) => string;
+  formatDate: (dateStr: string) => string;
+}
