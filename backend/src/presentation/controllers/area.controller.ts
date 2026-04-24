@@ -363,5 +363,4 @@ export class AreaController {
 
   export default router;
   */
-  */
 }
